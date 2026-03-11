@@ -1,0 +1,1310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Time Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0e0f11; --surface: #16181c; --surface2: #1e2128;
+    --border: #2a2d35; --accent: #e8ff47; --accent2: #47c8ff;
+    --danger: #ff5f5f; --text: #f0f2f5; --muted: #6b7280; --running: #47ff9c;
+    --idle-color: #f59e0b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Syne', sans-serif; min-height: 100vh; overflow-x: hidden; }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background-image: linear-gradient(rgba(232,255,71,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(232,255,71,0.03) 1px, transparent 1px);
+    background-size: 40px 40px; pointer-events: none; z-index: 0;
+  }
+  .app { position: relative; z-index: 1; max-width: 1000px; margin: 0 auto; padding: 24px 20px 60px; }
+
+  /* Header */
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 12px; }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .logo h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  .logo span { color: var(--accent); }
+  .tabs { display: flex; gap: 4px; background: var(--surface); padding: 4px; border-radius: 10px; }
+  .tab { padding: 8px 18px; border-radius: 7px; border: none; background: transparent; color: var(--muted); font-family: 'Syne', sans-serif; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: all 0.2s; letter-spacing: 0.05em; }
+  .tab.active { background: var(--accent); color: #0e0f11; }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  /* ── STICKY WRAPPER ──────────────────────────────────────── */
+  .sticky-top {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--bg);
+    padding-bottom: 4px;
+    box-shadow: 0 8px 32px 8px rgba(14,15,17,0.95);
+  }
+
+  /* ── SEARCH BAR ───────────────────────────────────────────── */
+  .search-bar {
+    position: relative; margin-bottom: 20px;
+  }
+  .search-bar input {
+    width: 100%; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 11px 16px 11px 42px;
+    color: var(--text); font-family: 'Syne', sans-serif; font-size: 0.88rem;
+    outline: none; transition: border-color 0.2s;
+  }
+  .search-bar input:focus { border-color: var(--accent2); }
+  .search-bar input::placeholder { color: var(--muted); }
+  .search-bar .search-icon {
+    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+    color: var(--muted); font-size: 1rem; pointer-events: none;
+  }
+  .search-bar .search-clear {
+    position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 1rem; padding: 2px 6px; display: none;
+  }
+  .search-bar .search-clear.show { display: block; }
+  .search-bar .search-clear:hover { color: var(--text); }
+  .search-count { font-size: 0.72rem; color: var(--muted); margin-top: -14px; margin-bottom: 16px; }
+
+  /* ── CLOCK IN/OUT BAR ─────────────────────────────────────── */
+  .clockinout-bar {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px; gap: 12px; flex-wrap: wrap;
+    transition: border-color 0.3s;
+  }
+  .clockinout-bar.clocked-in { border-color: var(--idle-color); box-shadow: 0 0 16px rgba(245,158,11,0.07); }
+  .clockinout-bar.on-task   { border-color: var(--running);    box-shadow: 0 0 16px rgba(71,255,156,0.07); }
+  .ci-left { display: flex; align-items: center; gap: 14px; }
+  .ci-status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background 0.3s; }
+  .ci-status-dot.idle-dot  { background: var(--idle-color); box-shadow: 0 0 8px var(--idle-color); animation: pulse 1.5s infinite; }
+  .ci-status-dot.task-dot  { background: var(--running);    box-shadow: 0 0 8px var(--running); animation: pulse 1.5s infinite; }
+  .ci-info { display: flex; flex-direction: column; gap: 1px; }
+  .ci-label { font-size: 0.68rem; color: var(--muted); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+  .ci-detail { font-size: 0.85rem; font-weight: 700; }
+  .ci-right { display: flex; align-items: center; gap: 10px; }
+  .ci-day-timer { font-family: 'DM Mono', monospace; font-size: 1rem; color: var(--muted); min-width: 70px; text-align: right; }
+  .ci-day-timer.active { color: var(--idle-color); }
+  .btn-clockin  { background: var(--accent); color: #0e0f11; border: none; border-radius: 8px; padding: 9px 20px; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.82rem; cursor: pointer; transition: opacity 0.2s; white-space: nowrap; }
+  .btn-clockin:hover { opacity: 0.85; }
+  .btn-clockout { background: transparent; border: 1px solid var(--idle-color); color: var(--idle-color); border-radius: 8px; padding: 9px 20px; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.82rem; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+  .btn-clockout:hover { background: var(--idle-color); color: #0e0f11; }
+  .idle-warning { font-size: 0.72rem; color: var(--idle-color); font-weight: 600; animation: pulse 1s infinite; display: none; }
+  .idle-warning.show { display: block; }
+
+  /* ── LIVE TASK BAR ────────────────────────────────────────── */
+  .live-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; min-height: 60px; transition: border-color 0.3s; }
+  .live-bar.running { border-color: var(--running); box-shadow: 0 0 20px rgba(71,255,156,0.08); }
+  .live-info { display: flex; flex-direction: column; gap: 2px; }
+  .live-label { font-size: 0.68rem; color: var(--muted); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+  .live-task { font-size: 0.92rem; font-weight: 700; max-width: 540px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .live-right { display: flex; align-items: center; gap: 14px; }
+  .live-timer { font-family: 'DM Mono', monospace; font-size: 1.9rem; font-weight: 500; color: var(--running); min-width: 120px; text-align: right; letter-spacing: 0.04em; }
+  .live-timer.idle { color: var(--muted); font-size: 1.2rem; }
+  .btn-stop { background: var(--danger); color: white; border: none; border-radius: 8px; padding: 10px 20px; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: opacity 0.2s; white-space: nowrap; }
+  .btn-stop:hover { opacity: 0.85; }
+  .btn-stop:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* Tab */
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Loading */
+  .loading-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .spinner-large { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .no-api-msg { text-align: center; padding: 60px 20px; }
+  .no-api-msg p { color: var(--muted); margin-bottom: 16px; }
+  .btn-goto { background: var(--accent); color: #0e0f11; border: none; border-radius: 8px; padding: 10px 20px; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.85rem; cursor: pointer; }
+
+  /* Track tab */
+  .project-group { margin-bottom: 18px; animation: fadeUp 0.35s ease both; }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  .project-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .project-color-bar { width: 4px; height: 20px; border-radius: 2px; flex-shrink: 0; }
+  .project-name { font-size: 0.82rem; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 680px; }
+  .project-name .prj-code { font-size: 0.68rem; color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .project-line { flex: 1; height: 1px; background: var(--border); min-width: 12px; }
+  .task-grid { display: flex; flex-wrap: wrap; gap: 8px; padding-left: 14px; }
+  .task-btn {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 15px; color: var(--text); font-family: 'Syne', sans-serif;
+    font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.15s;
+    text-align: left; line-height: 1.3; position: relative; overflow: hidden;
+  }
+  .task-btn::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; opacity: 0; transition: opacity 0.2s; }
+  .task-btn:hover { transform: translateY(-1px); }
+  .task-btn:hover::before { opacity: 1; }
+  .task-btn.active { box-shadow: 0 0 12px rgba(71,255,156,0.12); }
+  .task-btn.active::before { opacity: 1; }
+
+  /* Manual entry */
+  .manual-form { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 28px; display: flex; flex-direction: column; gap: 20px; max-width: 580px; }
+  .form-row { display: flex; flex-direction: column; gap: 6px; }
+  .form-row label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .form-row select, .form-row input[type=text], .form-row input[type=date] {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 11px 14px; color: var(--text); font-family: 'DM Mono', monospace;
+    font-size: 0.85rem; outline: none; transition: border-color 0.2s; width: 100%;
+  }
+  .form-row select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px; }
+  .form-row select:focus, .form-row input:focus { border-color: var(--accent2); }
+  .form-row select option { background: #1e2128; }
+  .row-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media(max-width:520px){ .row-2col { grid-template-columns: 1fr; } }
+  .dur-hint { font-size: 0.72rem; color: var(--muted); margin-top: 3px; }
+  .dur-preview { font-family: 'DM Mono', monospace; font-size: 1rem; color: var(--accent); min-height: 22px; margin-top: 2px; }
+  .btn-push { background: var(--accent); color: #0e0f11; border: none; border-radius: 10px; padding: 13px 28px; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: opacity 0.2s; align-self: flex-start; }
+  .btn-push:hover { opacity: 0.85; }
+  .btn-push:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Log */
+  .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
+  .log-header h2 { font-size: 0.85rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .log-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .log-range input[type=date] { background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; color: var(--text); font-family: 'DM Mono', monospace; font-size: 0.78rem; outline: none; }
+  .log-range { display: flex; gap: 6px; align-items: center; }
+  .log-range span { color: var(--muted); font-size: 0.8rem; }
+  .btn-sm { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 7px; padding: 7px 14px; font-family: 'Syne', sans-serif; font-weight: 600; font-size: 0.78rem; cursor: pointer; transition: all 0.2s; }
+  .btn-sm:hover { border-color: var(--accent2); color: var(--accent2); }
+  .btn-sm.export:hover { border-color: var(--accent); color: var(--accent); }
+  .log-summary { font-family: 'DM Mono', monospace; font-size: 0.8rem; color: var(--muted); margin-bottom: 12px; }
+  .log-summary span { color: var(--accent); font-weight: 700; }
+  .log-empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .log-table { width: 100%; border-collapse: collapse; }
+  .log-table th { text-align: left; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding: 0 10px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .log-table td { padding: 10px 10px; font-size: 0.82rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .log-table tr:last-child td { border-bottom: none; }
+  .td-mono { font-family: 'DM Mono', monospace; color: var(--accent2); white-space: nowrap; }
+  .td-dec  { font-family: 'DM Mono', monospace; color: var(--accent); font-weight: 700; white-space: nowrap; }
+  .td-dim  { color: var(--muted); font-size: 0.75rem; }
+  .td-wrap { max-width: 200px; word-break: break-word; line-height: 1.4; }
+  .prj-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; flex-shrink: 0; }
+
+  /* Settings */
+  .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media(max-width:640px){ .settings-grid { grid-template-columns: 1fr; } }
+  .settings-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; display: flex; flex-direction: column; gap: 18px; }
+  .settings-card h3 { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .settings-card label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 6px; }
+  .settings-card input, .settings-card select {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 11px 14px; color: var(--text); font-family: 'DM Mono', monospace;
+    font-size: 0.85rem; outline: none; transition: border-color 0.2s; width: 100%;
+  }
+  .settings-card select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px; }
+  .settings-card input:focus, .settings-card select:focus { border-color: var(--accent); }
+  .settings-card input::placeholder { color: var(--muted); }
+  .s-note { font-size: 0.73rem; color: var(--muted); margin-top: 4px; }
+  .conn-row { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; font-weight: 600; }
+  .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background 0.3s; }
+  .conn-dot.ok  { background: var(--running); box-shadow: 0 0 8px var(--running); }
+  .conn-dot.err { background: var(--danger); }
+  .btn-save { background: var(--accent); color: #0e0f11; border: none; border-radius: 8px; padding: 11px 22px; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: opacity 0.2s; }
+  .btn-save:hover { opacity: 0.85; }
+  .btn-reload { background: transparent; border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 9px 16px; font-family: 'Syne', sans-serif; font-weight: 600; font-size: 0.82rem; cursor: pointer; transition: all 0.2s; }
+  .btn-reload:hover { border-color: var(--accent2); color: var(--accent2); }
+  .ws-stat { display: flex; flex-direction: column; gap: 4px; }
+  .ws-stat-label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .ws-stat-val { font-size: 0.9rem; font-weight: 700; }
+
+  /* Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+  .modal-overlay.show { opacity: 1; pointer-events: all; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 28px; width: 100%; max-width: 460px; transform: translateY(16px); transition: transform 0.2s; margin: 16px; }
+  .modal-overlay.show .modal { transform: translateY(0); }
+  .modal h3 { font-size: 1rem; font-weight: 700; margin-bottom: 4px; }
+  .modal-sub { font-size: 0.82rem; color: var(--accent2); margin-bottom: 18px; font-family: 'DM Mono', monospace; white-space: pre-line; line-height: 1.6; }
+  .modal textarea { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; color: var(--text); font-family: 'Syne', sans-serif; font-size: 0.88rem; resize: vertical; min-height: 80px; outline: none; transition: border-color 0.2s; }
+  .modal textarea:focus { border-color: var(--accent); }
+  .modal-actions { display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end; }
+  .btn-cancel  { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 10px 18px; font-family: 'Syne', sans-serif; font-weight: 600; font-size: 0.85rem; cursor: pointer; }
+  .btn-discard { background: transparent; border: 1px solid var(--danger); color: var(--danger); border-radius: 8px; padding: 10px 18px; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: all 0.2s; }
+  .btn-discard:hover { background: var(--danger); color: white; }
+  .btn-confirm { background: var(--accent); color: #0e0f11; border: none; border-radius: 8px; padding: 10px 20px; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.85rem; cursor: pointer; }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 24px; right: 24px; z-index: 200; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 20px; font-size: 0.85rem; font-weight: 600; transform: translateY(80px); opacity: 0; transition: all 0.3s; max-width: 320px; pointer-events: none; }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.success { border-color: var(--running); color: var(--running); }
+  .toast.error   { border-color: var(--danger);  color: var(--danger); }
+  .toast.info    { border-color: var(--accent2); color: var(--accent2); }
+  .toast.warn    { border-color: var(--idle-color); color: var(--idle-color); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="logo">
+      <div class="logo-dot" id="headerDot"></div>
+      <h1><span>Time</span> Tracker</h1>
+    </div>
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('track',this)">Track</button>
+      <button class="tab" onclick="switchTab('manual',this)">Manual Entry</button>
+      <button class="tab" onclick="switchTab('log',this)">Log</button>
+      <button class="tab" onclick="switchTab('settings',this)">Settings</button>
+    </div>
+  </header>
+
+  <!-- ── STICKY TOP: CLOCK IN/OUT + LIVE BAR ─────────────────── -->
+  <div class="sticky-top">
+    <!-- CLOCK IN/OUT BAR -->
+    <div class="clockinout-bar" id="ciBar">
+    <div class="ci-left">
+      <div class="ci-status-dot" id="ciDot"></div>
+      <div class="ci-info">
+        <div class="ci-label" id="ciLabel">Not clocked in</div>
+        <div class="ci-detail" id="ciDetail">Clock in to start your workday</div>
+      </div>
+    </div>
+    <div class="ci-right">
+      <span class="idle-warning" id="idleWarning">⚠ Idle 30+ min</span>
+      <div class="ci-day-timer" id="ciDayTimer"></div>
+      <button class="btn-clockin" id="btnClockIn" onclick="clockIn()">Clock In</button>
+    </div>
+  </div>
+
+  <!-- ── LIVE TASK BAR ─────────────────────────────────────────── -->
+  <div class="live-bar" id="liveBar">
+    <div class="live-info">
+      <div class="live-label">Current Task</div>
+      <div class="live-task" id="liveTaskName">— idle —</div>
+    </div>
+    <div class="live-right">
+      <div class="live-timer idle" id="liveTimer">00:00:00</div>
+      <button class="btn-stop" id="btnStop" disabled onclick="stopTimer()">■ Stop</button>
+    </div>
+  </div>
+  </div><!-- end sticky-top -->
+
+  <!-- TRACK -->
+  <div id="tab-track" class="tab-content active">
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="projectSearch" placeholder="Search projects or tasks..." oninput="filterProjects()" autocomplete="off">
+      <button class="search-clear" id="searchClear" onclick="clearSearch()">✕</button>
+    </div>
+    <div class="search-count" id="searchCount"></div>
+    <div id="projectGroups"></div>
+  </div>
+
+  <!-- MANUAL ENTRY -->
+  <div id="tab-manual" class="tab-content">
+    <div class="manual-form">
+      <div class="row-2col">
+        <div class="form-row">
+          <label>Date</label>
+          <input type="date" id="manualDate">
+        </div>
+        <div class="form-row">
+          <label>Duration</label>
+          <input type="text" id="manualDuration" placeholder="1.25 · 1:30 · 90" oninput="previewDur()" onblur="normalizeDur()">
+          <div class="dur-hint">1.25 = 1h15m &nbsp;·&nbsp; 1.5 = 1h30m &nbsp;·&nbsp; 90 = 1h30m</div>
+          <div class="dur-preview" id="durPreview"></div>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Project</label>
+        <select id="manualProject" onchange="fillManualTasks()">
+          <option value="">— Select project —</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Task</label>
+        <select id="manualTask">
+          <option value="">— Select task —</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Memo</label>
+        <input type="text" id="manualMemo" placeholder="Brief description...">
+      </div>
+      <button class="btn-push" id="btnPushManual" onclick="pushManual()">Push to Clockify →</button>
+    </div>
+  </div>
+
+  <!-- LOG -->
+  <div id="tab-log" class="tab-content">
+    <div class="log-header">
+      <h2>Time Entries</h2>
+      <div class="log-controls">
+        <div class="log-range">
+          <input type="date" id="logFrom">
+          <span>→</span>
+          <input type="date" id="logTo">
+        </div>
+        <button class="btn-sm" onclick="fetchLog()">↻ Refresh</button>
+        <button class="btn-sm export" onclick="exportCSV()">↓ CSV</button>
+      </div>
+    </div>
+    <div id="logContent"><div class="loading-state"><p>Connect to Clockify to view entries.</p></div></div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div id="tab-settings" class="tab-content">
+    <div class="settings-grid">
+      <div class="settings-card">
+        <h3>Clockify Connection</h3>
+        <div class="conn-row">
+          <div class="conn-dot" id="connDot"></div>
+          <span id="connLabel">Not connected</span>
+        </div>
+        <div>
+          <label>API Key</label>
+          <input type="password" id="apiKeyInput" placeholder="Paste your Clockify API key...">
+          <p class="s-note">Stored only in this browser. Sent only to Clockify.</p>
+        </div>
+        <div>
+          <label>Your Name</label>
+          <input type="text" id="userNameInput" placeholder="e.g. Jan Schmidt">
+        </div>
+        <div id="workspaceSelectorRow" style="display:none;">
+          <label>Workspace</label>
+          <select id="workspaceSelect" onchange="onWorkspaceChange()">
+            <option value="">— Select workspace —</option>
+          </select>
+          <p class="s-note">Select which Clockify workspace to use.</p>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn-save" onclick="saveSettings()">Save & Connect</button>
+          <button class="btn-reload" onclick="reloadProjects()">↻ Reload Projects</button>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <h3>Clock-In Project</h3>
+        <div>
+          <label>Idle / Overhead Project</label>
+          <select id="idleProjectSelect" onchange="saveIdleProject()">
+            <option value="">— Select after connecting —</option>
+          </select>
+          <p class="s-note">Timer starts on this project when you clock in. Auto-stops when you pick a task.</p>
+        </div>
+        <div>
+          <label>Idle Task</label>
+          <select id="idleTaskSelect" onchange="saveIdleTask()">
+            <option value="">— Select project first —</option>
+          </select>
+        </div>
+        <div>
+          <label>Idle Alert After (minutes)</label>
+          <input type="text" id="idleMinutesInput" value="30" placeholder="30">
+          <p class="s-note">Browser notification if no task is running this long.</p>
+        </div>
+        <div id="notifPermRow">
+          <button class="btn-reload" onclick="requestNotifPermission()">Enable Notifications</button>
+          <p class="s-note" id="notifStatus">Permission: unknown</p>
+        </div>
+      </div>
+
+      <div class="settings-card" style="grid-column: span 2;">
+        <h3>Workspace Info</h3>
+        <div id="wsInfo" style="color:var(--muted);font-size:0.85rem;">Connect to see workspace details.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Stop Modal -->
+<div class="modal-overlay" id="descModal">
+  <div class="modal">
+    <h3>What did you work on?</h3>
+    <div class="modal-sub" id="modalSub"></div>
+    <textarea id="descInput" placeholder="Brief description... (Enter to save)"></textarea>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="cancelStop()">Cancel</button>
+      <button class="btn-discard" onclick="discardStop()">Discard</button>
+      <button class="btn-confirm" onclick="confirmStop()">Save & Push →</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────
+let apiKey      = localStorage.getItem('rsm_api_key') || '';
+let userName    = localStorage.getItem('rsm_user_name') || '';
+let workspaceId = null;
+let userId      = null;
+let projects    = [];
+let projectColors = {}; // id → hex color
+
+// Clock-in state
+let clockedIn       = false;
+let clockInTime     = null;
+let dayTimerInterval = null;
+let idleTimerStart  = null;  // when current idle period started
+let idleNotifSent   = false;
+let idleCheckInterval = null;
+
+// Task timer state
+let activeTimer   = null;
+let timerInterval = null;
+let pendingStop   = null;
+let pendingNext   = null;
+let logEntries    = [];
+
+// Idle project settings
+let idleProjectId   = localStorage.getItem('rsm_idle_pid') || '';
+let idleProjectName = localStorage.getItem('rsm_idle_pname') || '';
+let idleTaskId      = localStorage.getItem('rsm_idle_tid') || '';
+let idleTaskName    = localStorage.getItem('rsm_idle_tname') || '';
+let idleMinutes     = parseInt(localStorage.getItem('rsm_idle_mins') || '30');
+
+// ── Time helpers ───────────────────────────────────────────────
+function parseDecimal(raw) {
+  raw = (raw || '').trim(); if (!raw) return null;
+  let mins = null;
+  if (/^\d+:\d{2}$/.test(raw)) { const [h,m]=raw.split(':').map(Number); mins=h*60+m; }
+  else if (/^\d+$/.test(raw) && +raw>10) { mins=+raw; }
+  else if (/^\d+(\.\d+)?$/.test(raw)) { const d=parseFloat(raw); mins=Math.floor(d)*60+Math.round((d%1)*60); }
+  if (!mins||mins<=0) return null;
+  return Math.round(mins/15)*15/60;
+}
+function decToHuman(d) {
+  if (!d) return ''; const h=Math.floor(d),m=Math.round((d-h)*60);
+  return h===0?`${m}m`:m===0?`${h}h`:`${h}h ${m}m`;
+}
+// Round to nearest 5 mins (22m→20m, 23m→25m)
+function secToDec(sec) {
+  const mins    = sec / 60;
+  const rounded = Math.round(mins / 5) * 5;
+  return rounded / 60;
+}
+function fmtDec(d) { return parseFloat(d).toFixed(2)+'h'; }
+function fmtHMS(sec)   {
+  const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+function isoDurToDec(iso) {
+  if (!iso) return 0;
+  const h=(iso.match(/(\d+)H/)||[0,0])[1], m=(iso.match(/(\d+)M/)||[0,0])[1], s=(iso.match(/(\d+)S/)||[0,0])[1];
+  return (+h*3600+ +m*60+ +s)/3600;
+}
+function todayStr() { return new Date().toISOString().split('T')[0]; }
+function extractPRJ(n) { return (n.match(/^(PRJ\d+)/)||['',''])[1]; }
+function displayName(n) { return n.replace(/^PRJ\d+\s+\d+\s+/,'').replace(/^PRJ\d+\s+/,'').trim(); }
+
+// ── Init ───────────────────────────────────────────────────────
+window.onload = async () => {
+  document.getElementById('apiKeyInput').value  = apiKey;
+  document.getElementById('userNameInput').value = userName;
+  document.getElementById('manualDate').value   = todayStr();
+  document.getElementById('idleMinutesInput').value = idleMinutes;
+
+  const now = new Date();
+  const mon = new Date(now); mon.setDate(now.getDate()-((now.getDay()+6)%7));
+  document.getElementById('logFrom').value = mon.toISOString().split('T')[0];
+  document.getElementById('logTo').value   = todayStr();
+
+  updateNotifStatus();
+
+  if (apiKey) await connectClockify();
+  else        showNoApi('projectGroups');
+
+  restoreTimer();
+  restoreClockIn();
+};
+
+// ── Notification permission ────────────────────────────────────
+function updateNotifStatus() {
+  if (!('Notification' in window)) {
+    document.getElementById('notifStatus').textContent = 'Not supported in this browser';
+    return;
+  }
+  document.getElementById('notifStatus').textContent = `Permission: ${Notification.permission}`;
+}
+
+async function requestNotifPermission() {
+  if (!('Notification' in window)) return showToast('Notifications not supported', 'error');
+  const result = await Notification.requestPermission();
+  updateNotifStatus();
+  showToast(result === 'granted' ? 'Notifications enabled ✓' : 'Notifications blocked', result === 'granted' ? 'success' : 'error');
+}
+
+// ── Idle alert: flashing tab + browser notif + JS alert ───────
+let tabFlashInterval = null;
+let originalTitle    = 'Time Tracker';
+
+function startTabFlash() {
+  if (tabFlashInterval) return;
+  let toggle = false;
+  tabFlashInterval = setInterval(() => {
+    document.title = toggle ? '⚠ IDLE! — Tracker' : originalTitle;
+    toggle = !toggle;
+  }, 1000);
+}
+
+function stopTabFlash() {
+  clearInterval(tabFlashInterval);
+  tabFlashInterval = null;
+  document.title = originalTitle;
+}
+
+function sendIdleNotif() {
+  // 1. Flashing tab title — starts immediately
+  startTabFlash();
+
+  // 2. Browser notification as fallback (silent, in background)
+  if (Notification.permission === 'granted') {
+    const n = new Notification('⚠ Time Tracker — You are idle', {
+      body: `No task has been running for ${idleMinutes}+ minutes. Are you still working?`,
+    });
+    setTimeout(() => n.close(), 8000);
+  }
+
+  // 3. JS Alert — fires after short delay so tab flash is visible first
+  //    Use setTimeout so it doesn't block the idle checker loop
+  setTimeout(() => {
+    alert(`⚠ Time Tracker\n\nYou have been idle for ${idleMinutes}+ minutes.\n\nPlease start a task or clock out.`);
+    // Once dismissed, stop the tab flash
+    stopTabFlash();
+  }, 500);
+}
+
+// ── Settings ───────────────────────────────────────────────────
+async function saveSettings() {
+  apiKey   = document.getElementById('apiKeyInput').value.trim();
+  userName = document.getElementById('userNameInput').value.trim();
+  idleMinutes = parseInt(document.getElementById('idleMinutesInput').value) || 30;
+  localStorage.setItem('rsm_api_key',   apiKey);
+  localStorage.setItem('rsm_user_name', userName);
+  localStorage.setItem('rsm_idle_mins', idleMinutes);
+  await connectClockify();
+}
+
+function saveIdleProject() {
+  const sel = document.getElementById('idleProjectSelect');
+  idleProjectId   = sel.value;
+  idleProjectName = sel.options[sel.selectedIndex]?.dataset.name || '';
+  localStorage.setItem('rsm_idle_pid',   idleProjectId);
+  localStorage.setItem('rsm_idle_pname', idleProjectName);
+  fillIdleTaskSelect();
+}
+
+function saveIdleTask() {
+  const sel = document.getElementById('idleTaskSelect');
+  idleTaskId   = sel.value;
+  idleTaskName = sel.options[sel.selectedIndex]?.text || '';
+  localStorage.setItem('rsm_idle_tid',   idleTaskId);
+  localStorage.setItem('rsm_idle_tname', idleTaskName);
+}
+
+async function reloadProjects() {
+  if (!workspaceId) return showToast('Connect first','info');
+  showTrackLoading('Reloading...');
+  await loadProjects();
+  buildTrackTab(); fillManualProjectSelect(); fillIdleProjectSelect();
+  showToast('Projects reloaded ✓','success');
+}
+
+// ── Clockify API ───────────────────────────────────────────────
+async function cfetch(url) {
+  try { const r=await fetch(url,{headers:{'X-Api-Key':apiKey}}); return r.ok?r.json():null; }
+  catch { return null; }
+}
+async function cpost(url, body) {
+  try {
+    const r=await fetch(url,{method:'POST',headers:{'X-Api-Key':apiKey,'Content-Type':'application/json'},body:JSON.stringify(body)});
+    return r.ok;
+  } catch { return false; }
+}
+
+let allWorkspaces = [];
+
+async function connectClockify() {
+  setConn('Connecting...', '');
+  showTrackLoading('Connecting to Clockify...');
+  const me = await cfetch('https://api.clockify.me/api/v1/user');
+  if (!me) { setConn('Invalid API key', 'err'); showNoApi('projectGroups'); return; }
+  userId = me.id;
+
+  const wss = await cfetch('https://api.clockify.me/api/v1/workspaces');
+  allWorkspaces = wss || [];
+  if (!allWorkspaces.length) { setConn('No workspaces found', 'err'); return; }
+
+  // Populate workspace selector
+  const sel = document.getElementById('workspaceSelect');
+  sel.innerHTML = '';
+  allWorkspaces.forEach(w => {
+    const o = document.createElement('option');
+    o.value = w.id; o.textContent = w.name;
+    sel.appendChild(o);
+  });
+
+  // Restore saved workspace or default to first
+  const savedWsId = localStorage.getItem('rsm_workspace_id');
+  const ws = allWorkspaces.find(w => w.id === savedWsId) || allWorkspaces[0];
+  sel.value = ws.id;
+  workspaceId = ws.id;
+
+  // Show selector only if multiple workspaces
+  document.getElementById('workspaceSelectorRow').style.display =
+    allWorkspaces.length > 1 ? 'block' : 'none';
+
+  setConn(`Connected · ${ws.name}`, 'ok');
+  updateWsInfo(me, ws, allWorkspaces);
+  showToast('Connected to Clockify ✓', 'success');
+  showTrackLoading('Loading projects & tasks...');
+  await loadProjects();
+  buildTrackTab(); fillManualProjectSelect(); fillIdleProjectSelect();
+}
+
+async function onWorkspaceChange() {
+  const sel = document.getElementById('workspaceSelect');
+  workspaceId = sel.value;
+  localStorage.setItem('rsm_workspace_id', workspaceId);
+  const ws = allWorkspaces.find(w => w.id === workspaceId);
+  if (ws) setConn(`Connected · ${ws.name}`, 'ok');
+  showTrackLoading('Loading projects & tasks...');
+  await loadProjects();
+  buildTrackTab(); fillManualProjectSelect(); fillIdleProjectSelect();
+  showToast(`Switched to ${ws?.name} ✓`, 'success');
+}
+
+async function loadProjects() {
+  const ps = await cfetch(`https://api.clockify.me/api/v1/workspaces/${workspaceId}/projects?page-size=200&archived=false`);
+  if (!ps) return;
+
+  // Store colors first
+  ps.forEach(p => { projectColors[p.id] = p.color || '#6b7280'; });
+
+  // Fetch tasks in batches of 5 with 300ms delay to avoid Clockify rate limiting
+  const BATCH = 5, DELAY = 300;
+  const withTasks = [];
+
+  for (let i = 0; i < ps.length; i += BATCH) {
+    const batch = ps.slice(i, i + BATCH);
+    const results = await Promise.all(batch.map(async p => {
+      const tasks = await fetchTasksWithRetry(p.id);
+      return { id: p.id, name: p.name, color: p.color || '#6b7280', tasks };
+    }));
+    withTasks.push(...results);
+
+    // Update track tab progressively so user sees projects appearing
+    const partial = [...withTasks].sort((a,b) => a.name.localeCompare(b.name));
+    projects = partial;
+    buildTrackTab();
+
+    // Delay between batches (skip delay after last batch)
+    if (i + BATCH < ps.length) await sleep(DELAY);
+  }
+
+  projects = withTasks.sort((a,b) => a.name.localeCompare(b.name));
+}
+
+async function fetchTasksWithRetry(projectId, retries = 3) {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const tasks = await cfetch(`https://api.clockify.me/api/v1/workspaces/${workspaceId}/projects/${projectId}/tasks?page-size=200`);
+    if (tasks !== null) return tasks; // got a valid response (even empty array)
+    if (attempt < retries - 1) await sleep(400 * (attempt + 1)); // backoff: 400ms, 800ms
+  }
+  return []; // all retries failed — genuinely no tasks
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function updateWsInfo(me, ws, allWs) {
+  document.getElementById('wsInfo').innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:24px;">
+      <div class="ws-stat"><div class="ws-stat-label">Logged in as</div><div class="ws-stat-val">${me.name}</div><div style="font-size:0.75rem;color:var(--muted)">${me.email}</div></div>
+      <div class="ws-stat"><div class="ws-stat-label">Active Workspace</div><div class="ws-stat-val">${ws.name}</div></div>
+      <div class="ws-stat"><div class="ws-stat-label">Projects Loaded</div><div class="ws-stat-val" style="color:var(--accent);font-family:'DM Mono',monospace" id="projectCount">${projects.length}</div></div>
+      <div class="ws-stat"><div class="ws-stat-label">All Workspaces</div><div style="font-size:0.8rem;color:var(--muted);line-height:1.6">${allWs.map(w=>`<span style="${w.id===ws.id?'color:var(--text);font-weight:700':''}">${w.name}</span>`).join('<br>')}</div></div>
+    </div>`;
+}
+
+// ── Build Track Tab ────────────────────────────────────────────
+function showTrackLoading(msg) {
+  document.getElementById('projectGroups').innerHTML=`<div class="loading-state"><div class="spinner-large"></div><p>${msg}</p></div>`;
+}
+function showNoApi(elId) {
+  document.getElementById(elId).innerHTML=`<div class="no-api-msg"><p>Add your Clockify API key in Settings.</p><button class="btn-goto" onclick="switchTab('settings',document.querySelectorAll('.tab')[3])">Go to Settings →</button></div>`;
+}
+
+function buildTrackTab() {
+  const c = document.getElementById('projectGroups');
+  c.innerHTML = '';
+  if (!projects.length) { c.innerHTML='<div class="loading-state"><p>No active projects found.</p></div>'; return; }
+
+  // Exclude the configured idle project from the track tab
+  const trackProjects = projects.filter(pg => pg.id !== idleProjectId);
+
+  trackProjects.forEach((pg, gi) => {
+    const prj   = extractPRJ(pg.name);
+    const label = displayName(pg.name);
+    const color = pg.color || '#6b7280';
+
+    const d = document.createElement('div');
+    d.className = 'project-group';
+    d.style.animationDelay = (gi*0.02)+'s';
+    d.innerHTML = `
+      <div class="project-header">
+        <div class="project-color-bar" style="background:${color}"></div>
+        <div class="project-name">${label}${prj?`<span class="prj-code">(${prj})</span>`:''}</div>
+        <div class="project-line" style="background:linear-gradient(to right,${color}33,transparent)"></div>
+      </div>
+      <div class="task-grid" id="tg-${pg.id}"></div>`;
+    c.appendChild(d);
+
+    const grid = d.querySelector(`#tg-${pg.id}`);
+    const taskList = pg.tasks.length ? pg.tasks : [{id:'',name:'General'}];
+    taskList.forEach(task => {
+      const b = document.createElement('button');
+      b.className = 'task-btn';
+      b.dataset.pid=pg.id; b.dataset.tid=task.id; b.dataset.pname=pg.name; b.dataset.tname=task.name;
+      b.textContent = task.name;
+      // Color accent stripe + hover tint
+      b.style.setProperty('--prj-color', color);
+      b.style.cssText += `--prj-color:${color};`;
+      b.addEventListener('mouseenter', () => { if (!b.classList.contains('active')) { b.style.borderColor=color+'99'; b.style.color=color; } });
+      b.addEventListener('mouseleave', () => { if (!b.classList.contains('active')) { b.style.borderColor=''; b.style.color=''; } });
+      b.onclick = () => onTaskClick(pg.id, pg.name, task.id, task.name, b);
+      // Active style uses project color
+      b._color = color;
+      grid.appendChild(b);
+    });
+  });
+}
+
+// ── Idle Project Select ────────────────────────────────────────
+function fillIdleProjectSelect() {
+  const s = document.getElementById('idleProjectSelect');
+  s.innerHTML = '<option value="">— Select idle project —</option>';
+  projects.forEach(pg => {
+    const o = document.createElement('option');
+    o.value = pg.id; o.dataset.name = pg.name;
+    o.textContent = `${displayName(pg.name)}${extractPRJ(pg.name)?' ('+extractPRJ(pg.name)+')':''}`;
+    if (pg.id === idleProjectId) o.selected = true;
+    s.appendChild(o);
+  });
+  if (idleProjectId) fillIdleTaskSelect();
+}
+
+function fillIdleTaskSelect() {
+  const s = document.getElementById('idleTaskSelect');
+  s.innerHTML = '<option value="">— Select task —</option>';
+  const pg = projects.find(p=>p.id===idleProjectId);
+  if (!pg) return;
+  const taskList = pg.tasks.length ? pg.tasks : [{id:'',name:'General'}];
+  taskList.forEach(t => {
+    const o = document.createElement('option');
+    o.value=t.id; o.textContent=t.name;
+    if (t.id===idleTaskId) o.selected=true;
+    s.appendChild(o);
+  });
+}
+
+// ── Manual Project/Task Dropdowns ─────────────────────────────
+function fillManualProjectSelect() {
+  const s = document.getElementById('manualProject');
+  s.innerHTML = '<option value="">— Select project —</option>';
+  projects.forEach(pg => {
+    const o = document.createElement('option');
+    o.value = pg.id;
+    o.textContent = `${displayName(pg.name)}${extractPRJ(pg.name)?' ('+extractPRJ(pg.name)+')':''}`;
+    s.appendChild(o);
+  });
+}
+function fillManualTasks() {
+  const pid = document.getElementById('manualProject').value;
+  const s   = document.getElementById('manualTask');
+  s.innerHTML = '<option value="">— Select task —</option>';
+  if (!pid) return;
+  const pg = projects.find(p=>p.id===pid);
+  if (!pg) return;
+  const taskList = pg.tasks.length ? pg.tasks : [{id:'',name:'General'}];
+  taskList.forEach(t => { const o=document.createElement('option'); o.value=t.id; o.textContent=t.name; s.appendChild(o); });
+}
+
+function previewDur() {
+  const d=parseDecimal(document.getElementById('manualDuration').value);
+  const el=document.getElementById('durPreview');
+  if (d) { el.textContent=`→ ${fmtDec(d)}  (${decToHuman(d)})`; el.style.color='var(--accent)'; }
+  else if (document.getElementById('manualDuration').value.trim()) { el.textContent='— unrecognized'; el.style.color='var(--muted)'; }
+  else el.textContent='';
+}
+function normalizeDur() {
+  const d=parseDecimal(document.getElementById('manualDuration').value);
+  if (d) { document.getElementById('manualDuration').value=d.toFixed(2); previewDur(); }
+}
+
+async function pushManual() {
+  const pid=document.getElementById('manualProject').value;
+  const tSel=document.getElementById('manualTask');
+  const tid=tSel.value, tname=tSel.options[tSel.selectedIndex]?.text||'';
+  const dec=parseDecimal(document.getElementById('manualDuration').value);
+  const memo=document.getElementById('manualMemo').value.trim();
+  const date=document.getElementById('manualDate').value;
+  if (!pid)  return showToast('Select a project','info');
+  if (!tname||tname==='— Select task —') return showToast('Select a task','info');
+  if (!dec)  return showToast('Enter a valid duration','info');
+  if (!date) return showToast('Select a date','info');
+  const start=new Date(date+'T09:00:00'), end=new Date(start.getTime()+dec*3600000);
+  const btn=document.getElementById('btnPushManual');
+  btn.disabled=true; btn.textContent='Pushing...';
+  const ok=await cpost(`https://api.clockify.me/api/v1/workspaces/${workspaceId}/time-entries`,{
+    start:start.toISOString(),end:end.toISOString(),description:memo,projectId:pid,taskId:tid||undefined
+  });
+  btn.disabled=false; btn.textContent='Push to Clockify →';
+  if (ok) {
+    showToast(`${fmtDec(dec)} pushed ✓`,'success');
+    document.getElementById('manualDuration').value='';
+    document.getElementById('manualMemo').value='';
+    document.getElementById('durPreview').textContent='';
+  } else showToast('Clockify push failed','error');
+}
+
+// ── CLOCK IN / OUT ─────────────────────────────────────────────
+function clockIn() {
+  if (!workspaceId) return showToast('Connect to Clockify first','info');
+
+  clockedIn   = true;
+  clockInTime = new Date();
+  localStorage.setItem('rsm_clockin', clockInTime.toISOString());
+
+  // Update UI
+  document.getElementById('ciBar').classList.add('clocked-in');
+  document.getElementById('ciDot').classList.add('idle-dot');
+  document.getElementById('ciLabel').textContent  = 'Clocked in';
+  document.getElementById('ciDetail').textContent = `Since ${clockInTime.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`;
+  document.getElementById('ciDayTimer').classList.add('active');
+
+  const btn = document.getElementById('btnClockIn');
+  btn.textContent = 'Clock Out';
+  btn.className   = 'btn-clockout';
+  btn.onclick     = clockOut;
+
+  // Start day timer
+  dayTimerInterval = setInterval(updateDayTimer, 1000);
+  updateDayTimer();
+
+  // Start idle project timer in Clockify if configured
+  if (idleProjectId) {
+    startIdleEntry();
+  }
+
+  // Start idle checker
+  idleTimerStart = new Date();
+  idleNotifSent  = false;
+  startIdleChecker();
+
+  requestNotifPermission();
+  showToast('Clocked in ✓ Have a great day!','success');
+}
+
+function clockOut() {
+  if (!clockedIn) return;
+
+  // Stop any running task first
+  if (activeTimer) {
+    triggerStop(true); // silent stop — no memo popup for clock-out
+    return; // confirmStop will call clockOut again via pendingClockOut
+  }
+
+  // Stop idle entry in Clockify
+  if (idleProjectId) stopIdleEntry();
+
+  clockedIn = false;
+  localStorage.removeItem('rsm_clockin');
+
+  clearInterval(dayTimerInterval);
+  clearInterval(idleCheckInterval);
+  dayTimerInterval = null;
+
+  document.getElementById('ciBar').classList.remove('clocked-in','on-task');
+  document.getElementById('ciDot').classList.remove('idle-dot','task-dot');
+  document.getElementById('ciLabel').textContent  = 'Not clocked in';
+  document.getElementById('ciDetail').textContent = 'Clock in to start your workday';
+  document.getElementById('ciDayTimer').textContent = '';
+  document.getElementById('ciDayTimer').classList.remove('active');
+  document.getElementById('idleWarning').classList.remove('show');
+  stopTabFlash();
+
+  const btn = document.getElementById('btnClockIn');
+  btn.textContent = 'Clock In';
+  btn.className   = 'btn-clockin';
+  btn.onclick     = clockIn;
+
+  showToast('Clocked out. See you tomorrow!','success');
+}
+
+function restoreClockIn() {
+  const saved = localStorage.getItem('rsm_clockin');
+  if (!saved) return;
+  clockInTime = new Date(saved);
+  if (isNaN(clockInTime)) { localStorage.removeItem('rsm_clockin'); return; }
+  clockedIn = true;
+
+  document.getElementById('ciBar').classList.add('clocked-in');
+  document.getElementById('ciDot').classList.add('idle-dot');
+  document.getElementById('ciLabel').textContent  = 'Clocked in';
+  document.getElementById('ciDetail').textContent = `Since ${clockInTime.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`;
+  document.getElementById('ciDayTimer').classList.add('active');
+
+  const btn = document.getElementById('btnClockIn');
+  btn.textContent = 'Clock Out';
+  btn.className   = 'btn-clockout';
+  btn.onclick     = clockOut;
+
+  dayTimerInterval = setInterval(updateDayTimer, 1000);
+  updateDayTimer();
+  idleTimerStart = new Date();
+  idleNotifSent  = false;
+  startIdleChecker();
+}
+
+function updateDayTimer() {
+  if (!clockInTime) return;
+  const sec = Math.floor((Date.now()-clockInTime)/1000);
+  document.getElementById('ciDayTimer').textContent = fmtHMS(sec);
+}
+
+// ── Idle Clockify entries ──────────────────────────────────────
+let activeIdleEntryId = null;
+
+async function startIdleEntry() {
+  if (!idleProjectId || !workspaceId) return;
+  const start = new Date();
+  const ok = await fetch(`https://api.clockify.me/api/v1/workspaces/${workspaceId}/time-entries`, {
+    method: 'POST',
+    headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      start: start.toISOString(),
+      description: 'Idle / Overhead',
+      projectId: idleProjectId,
+      taskId: idleTaskId || undefined,
+    })
+  });
+  if (ok.ok) {
+    const data = await ok.json();
+    activeIdleEntryId = data.id;
+  }
+}
+
+async function stopIdleEntry() {
+  if (!workspaceId || !userId) return;
+  // Stop the currently running timer for this user (correct Clockify endpoint)
+  await fetch(`https://api.clockify.me/api/v1/workspaces/${workspaceId}/user/${userId}/time-entries`, {
+    method: 'PATCH',
+    headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ end: new Date().toISOString() })
+  });
+  activeIdleEntryId = null;
+}
+
+// ── Idle checker ───────────────────────────────────────────────
+function startIdleChecker() {
+  clearInterval(idleCheckInterval);
+  idleCheckInterval = setInterval(() => {
+    if (!clockedIn || activeTimer) {
+      // Reset idle timer when task is running
+      if (activeTimer) {
+        idleTimerStart = null;
+        idleNotifSent  = false;
+        document.getElementById('idleWarning').classList.remove('show');
+      }
+      return;
+    }
+    // No task running — count idle time
+    if (!idleTimerStart) idleTimerStart = new Date();
+    const idleSec = Math.floor((Date.now()-idleTimerStart)/1000);
+    const threshold = idleMinutes * 60;
+    if (idleSec >= threshold && !idleNotifSent) {
+      idleNotifSent = true;
+      document.getElementById('idleWarning').classList.add('show');
+      sendIdleNotif();
+      showToast(`⚠ You've been idle for ${idleMinutes}+ minutes`,'warn');
+    }
+  }, 10000); // check every 10 seconds
+}
+
+// ── Task Timer ─────────────────────────────────────────────────
+function onTaskClick(pid, projectName, tid, taskName, btn) {
+  if (!clockedIn) return showToast('Clock in first to start tracking','warn');
+  if (activeTimer) { pendingNext={pid,projectName,tid,taskName,btn}; triggerStop(false); return; }
+
+  // Stop idle entry when starting a real task
+  if (activeIdleEntryId) stopIdleEntry();
+
+  // Reset idle tracking
+  idleTimerStart = null; idleNotifSent = false;
+  document.getElementById('idleWarning').classList.remove('show');
+  stopTabFlash();
+
+  const start = new Date();
+  activeTimer = {pid, projectName, tid, taskName, start, btn};
+  localStorage.setItem('rsm_active_timer', JSON.stringify({pid,projectName,tid,taskName,startISO:start.toISOString()}));
+
+  btn.classList.add('active');
+  if (btn._color) { btn.style.borderColor=btn._color; btn.style.color=btn._color; btn.style.background=btn._color+'14'; }
+
+  document.getElementById('liveBar').classList.add('running');
+  document.getElementById('liveTaskName').textContent = `${displayName(projectName)} · ${taskName}`;
+  document.getElementById('btnStop').disabled = false;
+  document.getElementById('liveTimer').classList.remove('idle');
+  document.getElementById('headerDot').style.cssText = 'background:var(--running);box-shadow:0 0 12px var(--running)';
+
+  // Update clock-in bar
+  document.getElementById('ciBar').classList.remove('clocked-in');
+  document.getElementById('ciBar').classList.add('on-task');
+  document.getElementById('ciDot').classList.remove('idle-dot');
+  document.getElementById('ciDot').classList.add('task-dot');
+  document.getElementById('ciLabel').textContent  = 'On task';
+  document.getElementById('ciDetail').textContent = taskName;
+
+  timerInterval = setInterval(tickTimer,1000);
+  tickTimer();
+}
+
+function restoreTimer() {
+  const saved = localStorage.getItem('rsm_active_timer');
+  if (!saved) return;
+  try {
+    const t = JSON.parse(saved);
+    const start = new Date(t.startISO);
+    if (isNaN(start)) { localStorage.removeItem('rsm_active_timer'); return; }
+    activeTimer = {pid:t.pid,projectName:t.projectName,tid:t.tid,taskName:t.taskName,start,btn:null};
+    document.getElementById('liveBar').classList.add('running');
+    document.getElementById('liveTaskName').textContent = `${displayName(t.projectName)} · ${t.taskName}`;
+    document.getElementById('btnStop').disabled = false;
+    document.getElementById('liveTimer').classList.remove('idle');
+    document.getElementById('headerDot').style.cssText='background:var(--running);box-shadow:0 0 12px var(--running)';
+    timerInterval = setInterval(()=>{
+      tickTimer();
+      if (!activeTimer?.btn) {
+        const b=document.querySelector(`.task-btn[data-pid="${t.pid}"][data-tname="${t.taskName}"]`);
+        if (b) {
+          b.classList.add('active');
+          if (b._color){b.style.borderColor=b._color;b.style.color=b._color;b.style.background=b._color+'14';}
+          activeTimer.btn=b;
+        }
+      }
+    },1000);
+    tickTimer();
+    showToast(`⏱ Timer restored: ${t.taskName}`,'info');
+  } catch { localStorage.removeItem('rsm_active_timer'); }
+}
+
+function tickTimer() {
+  if (!activeTimer) return;
+  const sec = Math.floor((Date.now()-activeTimer.start)/1000);
+  document.getElementById('liveTimer').textContent = fmtHMS(sec);
+}
+
+function stopTimer() { if (activeTimer) triggerStop(false); }
+
+let pendingClockOut = false;
+function triggerStop(forClockOut=false) {
+  pendingClockOut = forClockOut;
+  const realEnd = new Date();
+  const sec     = Math.floor((realEnd - activeTimer.start) / 1000);
+  const dec     = secToDec(sec); // rounded to nearest 5 mins
+  // Recalculate end time from rounded duration so Clockify gets correct duration
+  const roundedEnd = new Date(activeTimer.start.getTime() + dec * 3600000);
+  pendingStop = {...activeTimer, end: roundedEnd, dec};
+  if (forClockOut) { confirmStop(); return; }
+  document.getElementById('modalSub').textContent =
+    `${displayName(activeTimer.projectName)}\n${activeTimer.taskName} — ${fmtHMS(sec)} → ${fmtDec(dec)} (${decToHuman(dec)})`;
+  document.getElementById('descInput').value = '';
+  document.getElementById('descModal').classList.add('show');
+  setTimeout(() => document.getElementById('descInput').focus(), 150);
+}
+
+function cancelStop() {
+  document.getElementById('descModal').classList.remove('show');
+  pendingStop = null; pendingNext = null; pendingClockOut = false;
+}
+
+// Discard — stops timer locally, nothing sent to Clockify
+function discardStop() {
+  document.getElementById('descModal').classList.remove('show');
+  const hadNext = pendingNext;
+  pendingStop = null; pendingNext = null; pendingClockOut = false;
+  clearTimer();
+  // Resume idle entry since no task is running
+  if (clockedIn && idleProjectId) startIdleEntry();
+  idleTimerStart = new Date(); idleNotifSent = false;
+  stopTabFlash();
+  document.getElementById('idleWarning').classList.remove('show');
+  document.getElementById('ciBar').classList.remove('on-task');
+  document.getElementById('ciBar').classList.add('clocked-in');
+  document.getElementById('ciDot').classList.remove('task-dot');
+  document.getElementById('ciDot').classList.add('idle-dot');
+  document.getElementById('ciLabel').textContent = 'Clocked in — idle';
+  document.getElementById('ciDetail').textContent = `Since ${clockInTime?.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})||'—'}`;
+  showToast('Timer discarded — nothing pushed', 'info');
+  // If switching tasks, start the next one
+  if (hadNext) onTaskClick(hadNext.pid, hadNext.projectName, hadNext.tid, hadNext.taskName, hadNext.btn);
+}
+
+async function confirmStop() {
+  const memo = pendingClockOut ? '' : document.getElementById('descInput').value.trim();
+  document.getElementById('descModal').classList.remove('show');
+  if (!pendingStop) return;
+  const {pid, tid, start, end, dec} = pendingStop;
+  // Payload uses rounded end time — Clockify computes duration as end - start
+  const ok = await cpost(`https://api.clockify.me/api/v1/workspaces/${workspaceId}/time-entries`, {
+    start: start.toISOString(),
+    end:   end.toISOString(),   // ← rounded end, not real end
+    description: memo,
+    projectId: pid || undefined,
+    taskId: (tid && tid !== '') ? tid : undefined
+  });
+  if (!pendingClockOut) showToast(ok ? `${fmtDec(dec)} pushed ✓` : 'Clockify push failed', ok ? 'success' : 'error');
+  clearTimer();
+
+  if (pendingClockOut) { pendingClockOut=false; clockOut(); return; }
+
+  if (pendingNext) {
+    const n=pendingNext; pendingNext=null;
+    onTaskClick(n.pid,n.projectName,n.tid,n.taskName,n.btn);
+  } else {
+    // Back to idle — restart idle entry
+    if (clockedIn && idleProjectId) startIdleEntry();
+    idleTimerStart=new Date(); idleNotifSent=false;
+    stopTabFlash();
+    document.getElementById('idleWarning').classList.remove('show');
+    document.getElementById('ciBar').classList.remove('on-task');
+    document.getElementById('ciBar').classList.add('clocked-in');
+    document.getElementById('ciDot').classList.remove('task-dot');
+    document.getElementById('ciDot').classList.add('idle-dot');
+    document.getElementById('ciLabel').textContent='Clocked in — idle';
+    document.getElementById('ciDetail').textContent=`Since ${clockInTime?.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})||'—'}`;
+  }
+}
+
+function clearTimer() {
+  clearInterval(timerInterval);
+  if (activeTimer?.btn) {
+    activeTimer.btn.classList.remove('active');
+    activeTimer.btn.style.borderColor=''; activeTimer.btn.style.color=''; activeTimer.btn.style.background='';
+  }
+  activeTimer=null;
+  localStorage.removeItem('rsm_active_timer');
+  document.getElementById('liveBar').classList.remove('running');
+  document.getElementById('liveTaskName').textContent='— idle —';
+  document.getElementById('liveTimer').textContent='00:00:00';
+  document.getElementById('liveTimer').classList.add('idle');
+  document.getElementById('btnStop').disabled=true;
+  document.getElementById('headerDot').style.cssText='background:var(--accent);box-shadow:0 0 12px var(--accent)';
+}
+
+// ── Log from Clockify ──────────────────────────────────────────
+async function fetchLog() {
+  if (!workspaceId||!userId) return showToast('Connect first','info');
+  const from=document.getElementById('logFrom').value, to=document.getElementById('logTo').value;
+  if (!from||!to) return showToast('Select a date range','info');
+  document.getElementById('logContent').innerHTML='<div class="loading-state"><div class="spinner-large"></div><p>Fetching from Clockify...</p></div>';
+  const data=await cfetch(`https://api.clockify.me/api/v1/workspaces/${workspaceId}/user/${userId}/time-entries?start=${from}T00:00:00.000Z&end=${to}T23:59:59.000Z&page-size=200&hydrated=true`);
+  if (!data) { document.getElementById('logContent').innerHTML='<div class="log-empty">Failed to load entries.</div>'; return; }
+  logEntries=data; renderLog();
+}
+
+function renderLog() {
+  const c=document.getElementById('logContent');
+  if (!logEntries.length) { c.innerHTML='<div class="log-empty">No entries in this date range.</div>'; return; }
+  let total=0; logEntries.forEach(e=>{if(e.timeInterval?.duration)total+=isoDurToDec(e.timeInterval.duration);});
+  c.innerHTML=`
+    <div class="log-summary">Showing <span>${logEntries.length}</span> entries · Total: <span>${fmtDec(total)}</span> (${decToHuman(total)})</div>
+    <table class="log-table">
+      <thead><tr><th>Date</th><th>Hours</th><th>Project</th><th>Task</th><th>Description</th></tr></thead>
+      <tbody id="logBody"></tbody>
+    </table>`;
+  const tb=document.getElementById('logBody');
+  [...logEntries].sort((a,b)=>new Date(b.timeInterval?.start)-new Date(a.timeInterval?.start)).forEach(e=>{
+    const start=e.timeInterval?.start?new Date(e.timeInterval.start):null;
+    const dec=e.timeInterval?.duration?isoDurToDec(e.timeInterval.duration):0;
+    const color=e.project?.id?projectColors[e.project.id]||'#6b7280':'#6b7280';
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td class="td-mono">${start?start.toLocaleDateString('en-GB'):'—'}</td>
+      <td class="td-dec">${fmtDec(dec)}</td>
+      <td class="td-wrap"><span class="prj-dot" style="background:${color}"></span>${displayName(e.project?.name||'—')}${extractPRJ(e.project?.name||'')?` <span style="color:var(--muted);font-size:0.7rem">(${extractPRJ(e.project.name)})</span>`:''}</td>
+      <td class="td-wrap td-dim">${e.task?.name||'—'}</td>
+      <td class="td-wrap td-dim">${e.description||'—'}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+function exportCSV() {
+  if (!logEntries.length) return showToast('No entries to export','info');
+  const rows=[['Date','Duration','Customer:Job','Task','Memo','Project Phase']];
+  [...logEntries].sort((a,b)=>new Date(b.timeInterval?.start)-new Date(a.timeInterval?.start)).forEach(e=>{
+    const start=e.timeInterval?.start?new Date(e.timeInterval.start):new Date();
+    const dec=e.timeInterval?.duration?isoDurToDec(e.timeInterval.duration):0;
+    rows.push([start.toLocaleDateString('en-GB'),dec.toFixed(2),e.project?.name||'',e.task?.name||'',e.description||'','']);
+  });
+  const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  Object.assign(document.createElement('a'),{href:URL.createObjectURL(new Blob([csv],{type:'text/csv'})),download:`rsm_timelog_${todayStr()}.csv`}).click();
+  showToast('CSV downloaded!','success');
+}
+
+// ── UI ─────────────────────────────────────────────────────────
+// ── Search / Filter ────────────────────────────────────────────
+function filterProjects() {
+  const q       = document.getElementById('projectSearch').value.trim().toLowerCase();
+  const clearBtn = document.getElementById('searchClear');
+  const countEl  = document.getElementById('searchCount');
+  clearBtn.classList.toggle('show', q.length > 0);
+
+  let matchedProjects = 0, matchedTasks = 0;
+  document.querySelectorAll('.project-group').forEach(group => {
+    const projectName = group.querySelector('.project-name')?.textContent.toLowerCase() || '';
+    const taskBtns    = group.querySelectorAll('.task-btn');
+    let groupHasMatch = false;
+
+    if (!q) {
+      group.style.display = '';
+      taskBtns.forEach(b => b.style.display = '');
+      return;
+    }
+    const projectMatch = projectName.includes(q);
+    taskBtns.forEach(btn => {
+      const show = projectMatch || btn.textContent.toLowerCase().includes(q);
+      btn.style.display = show ? '' : 'none';
+      if (show) { groupHasMatch = true; matchedTasks++; }
+    });
+    group.style.display = groupHasMatch ? '' : 'none';
+    if (groupHasMatch) matchedProjects++;
+  });
+
+  countEl.textContent = q
+    ? `${matchedProjects} project${matchedProjects!==1?'s':''}, ${matchedTasks} task${matchedTasks!==1?'s':''} found`
+    : '';
+}
+
+function clearSearch() {
+  document.getElementById('projectSearch').value = '';
+  filterProjects();
+}
+
+// ── UI ─────────────────────────────────────────────────────────
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  el.classList.add('active');
+  if (name==='log'&&workspaceId) fetchLog();
+}
+function setConn(msg,state) {
+  document.getElementById('connLabel').textContent=msg;
+  document.getElementById('connDot').className='conn-dot'+(state?' '+state:'');
+}
+let toastT;
+function showToast(msg,type='info') {
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className=`toast ${type} show`;
+  clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),4000);
+}
+document.getElementById('descInput').addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();confirmStop();}
+});
+</script>
+</body>
+</html>
