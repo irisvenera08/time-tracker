@@ -252,6 +252,51 @@
   .toast.error   { border-color: var(--danger);  color: var(--danger); }
   .toast.info    { border-color: var(--accent2); color: var(--accent2); }
   .toast.warn    { border-color: var(--idle-color); color: var(--idle-color); }
+
+  /* ── DESC AUTOCOMPLETE DROPDOWN ───────────────────────────── */
+  .desc-ac-dropdown {
+    position: fixed; z-index: 300;
+    background: var(--surface); border: 1px solid var(--accent2);
+    border-radius: 10px; overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(71,200,255,0.1);
+    min-width: 280px; max-width: 520px;
+    animation: acDrop 0.12s ease both;
+    pointer-events: all;
+  }
+  @keyframes acDrop { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
+  .desc-ac-header {
+    padding: 7px 14px 5px;
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--accent2); opacity: 0.7;
+    border-bottom: 1px solid var(--border);
+  }
+  .desc-ac-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 9px 14px; cursor: pointer;
+    transition: background 0.1s; border: none; background: transparent;
+    width: 100%; text-align: left; font-family: 'Syne', sans-serif;
+  }
+  .desc-ac-item:hover, .desc-ac-item.focused {
+    background: rgba(71,200,255,0.08);
+  }
+  .desc-ac-item.focused { outline: none; }
+  .desc-ac-icon {
+    font-size: 0.75rem; color: var(--accent2); opacity: 0.6;
+    margin-top: 1px; flex-shrink: 0;
+  }
+  .desc-ac-text { flex: 1; min-width: 0; }
+  .desc-ac-desc {
+    font-size: 0.82rem; color: var(--text); font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    line-height: 1.3;
+  }
+  .desc-ac-desc mark {
+    background: transparent; color: var(--accent); font-weight: 700;
+  }
+
+  .desc-ac-empty {
+    padding: 10px 14px; font-size: 0.78rem; color: var(--muted); font-style: italic;
+  }
 </style>
 </head>
 <body>
@@ -295,7 +340,8 @@
       <div class="live-task" id="liveTaskName">— idle —</div>
       <input class="live-desc-input" id="liveDescInput" type="text"
         placeholder="What are you working on..." autocomplete="off"
-        oninput="onLiveDescInput()">
+        oninput="onLiveDescInput()"
+        onkeydown="acKeydown(event, this)">
     </div>
     <div class="live-right">
       <div class="live-timer idle" id="liveTimer">00:00:00</div>
@@ -449,7 +495,9 @@
   <div class="modal">
     <h3 id="modalTitle">What did you work on?</h3>
     <div class="modal-sub" id="modalSub"></div>
-    <textarea id="descInput" placeholder="Brief description... (Enter to save)"></textarea>
+    <div style="position:relative;">
+      <textarea id="descInput" placeholder="Brief description... (Enter to save)" oninput="onModalDescInput()"></textarea>
+    </div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="cancelStop()">Cancel</button>
       <button class="btn-discard" onclick="discardStop()">Discard</button>
@@ -457,6 +505,9 @@
     </div>
   </div>
 </div>
+
+<!-- Shared autocomplete dropdown (portalled to body) -->
+<div class="desc-ac-dropdown" id="descAcDropdown" style="display:none;"></div>
 
 <div class="toast" id="toast"></div>
 
@@ -484,6 +535,12 @@ let pendingStop   = null;
 let pendingNext   = null;
 let pendingStart  = null; // for 'before' timing mode
 let logEntries    = [];
+
+// ── Description autocomplete ───────────────────────────────────
+// Stores unique descriptions used today: [{desc, projectName, taskName, time}]
+let todayDescriptions = [];
+let acFocusIndex      = -1;
+let acActiveField     = null; // the input/textarea currently using AC
 
 // Idle project settings
 let idleProjectId   = localStorage.getItem('cfy_idle_pid') || '';
@@ -600,8 +657,179 @@ function applyDescTimingUI() {
     : 'After: describe what you did when you stop the timer.';
 }
 
+// ── Today's Description History ───────────────────────────────
+async function fetchTodayDescriptions() {
+  if (!workspaceId || !userId) return;
+  const now   = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  const end   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+  // No hydrated=true — we only need e.description, nothing else
+  const data = await cfetch(
+    `https://api.clockify.me/api/v1/workspaces/${workspaceId}/user/${userId}/time-entries` +
+    `?start=${start.toISOString()}&end=${end.toISOString()}&page-size=50`
+  );
+  if (!data) return;
+  const seen = new Set();
+  todayDescriptions = [];
+  data.forEach(e => {
+    const desc = (e.description || '').trim();
+    if (!desc || seen.has(desc.toLowerCase())) return;
+    seen.add(desc.toLowerCase());
+    todayDescriptions.push(desc);
+  });
+}
+
+// Add a new description to the top of the local cache (called after push)
+function addTodayDescription(desc) {
+  if (!desc || !desc.trim()) return;
+  desc = desc.trim();
+  todayDescriptions = todayDescriptions.filter(d => d.toLowerCase() !== desc.toLowerCase());
+  todayDescriptions.unshift(desc);
+}
+
+// ── Autocomplete Engine ────────────────────────────────────────
+function acMatch(query, items) {
+  if (!query.trim()) return [];
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return items.filter(desc =>
+    words.every(w => desc.toLowerCase().includes(w))
+  ).slice(0, 7);
+}
+
+function highlightMatch(text, query) {
+  if (!query.trim()) return escHtml(text);
+  const words = query.trim().split(/\s+/).filter(Boolean);
+  let result = escHtml(text);
+  words.forEach(w => {
+    const re = new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi');
+    result = result.replace(re, '<mark>$1</mark>');
+  });
+  return result;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function showAcDropdown(field, query) {
+  const matches = acMatch(query, todayDescriptions);
+  const dropdown = document.getElementById('descAcDropdown');
+
+  if (!matches.length || !query.trim()) {
+    hideAcDropdown();
+    return;
+  }
+
+  acActiveField = field;
+  acFocusIndex  = -1;
+
+  // Position dropdown below the field
+  const rect = field.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const dropH = Math.min(matches.length * 58 + 36, 380);
+
+  let top  = rect.bottom + 4;
+  let left = rect.left;
+  let width = Math.max(rect.width, 320);
+
+  // Flip up if not enough room below
+  if (spaceBelow < dropH + 8) top = rect.top - dropH - 4;
+
+  // Clamp to viewport
+  if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
+  if (left < 8) left = 8;
+
+  dropdown.style.cssText = `display:block;top:${top}px;left:${left}px;width:${width}px;max-height:380px;overflow-y:auto;`;
+
+  dropdown.innerHTML = `<div class="desc-ac-header">📋 Today's descriptions — ${matches.length} match${matches.length!==1?'es':''}</div>` +
+    matches.map((desc, i) => `
+      <button class="desc-ac-item" data-index="${i}" onclick="selectAcItem(${i})" onmouseenter="acHover(${i})">
+        <span class="desc-ac-icon">↩</span>
+        <span class="desc-ac-text">
+          <span class="desc-ac-desc">${highlightMatch(desc, query)}</span>
+        </span>
+      </button>`).join('');
+}
+
+function hideAcDropdown() {
+  document.getElementById('descAcDropdown').style.display = 'none';
+  acFocusIndex = -1;
+  acActiveField = null;
+}
+
+function acHover(i) {
+  acFocusIndex = i;
+  updateAcFocus();
+}
+
+function updateAcFocus() {
+  document.querySelectorAll('.desc-ac-item').forEach((el, i) => {
+    el.classList.toggle('focused', i === acFocusIndex);
+  });
+}
+
+function selectAcItem(i) {
+  const item = acMatch(acActiveField?.value || '', todayDescriptions)[i];
+  if (!item) return;
+  if (acActiveField) {
+    acActiveField.value = item;
+    acActiveField.dispatchEvent(new Event('input'));
+    acActiveField.focus();
+  }
+  hideAcDropdown();
+}
+
+function acKeydown(e, field) {
+  const dropdown = document.getElementById('descAcDropdown');
+  if (dropdown.style.display === 'none') return;
+  const items = dropdown.querySelectorAll('.desc-ac-item');
+  if (!items.length) return;
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    acFocusIndex = Math.min(acFocusIndex + 1, items.length - 1);
+    updateAcFocus();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    acFocusIndex = Math.max(acFocusIndex - 1, -1);
+    updateAcFocus();
+  } else if (e.key === 'Enter' && acFocusIndex >= 0) {
+    e.preventDefault();
+    e.stopPropagation();
+    const item = acMatch(field.value, todayDescriptions)[acFocusIndex];
+    if (item) { field.value = item; hideAcDropdown(); field.dispatchEvent(new Event('input')); }
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    hideAcDropdown();
+  } else if (e.key === 'Tab' && acFocusIndex >= 0) {
+    e.preventDefault();
+    const item = acMatch(field.value, todayDescriptions)[acFocusIndex];
+    if (item) { field.value = item; hideAcDropdown(); field.dispatchEvent(new Event('input')); }
+  } else if (e.key === 'Tab') {
+    hideAcDropdown();
+  }
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', e => {
+  const dropdown = document.getElementById('descAcDropdown');
+  if (dropdown && !dropdown.contains(e.target) &&
+      e.target.id !== 'liveDescInput' &&
+      e.target.id !== 'descInput') {
+    hideAcDropdown();
+  }
+}, true);
+
+// Reposition on scroll/resize
+window.addEventListener('scroll', () => { if (acActiveField) showAcDropdown(acActiveField, acActiveField.value); }, true);
+window.addEventListener('resize', () => { if (acActiveField) hideAcDropdown(); });
+
 function onLiveDescInput() {
-  // Nothing special needed — value read directly on stop/start
+  showAcDropdown(document.getElementById('liveDescInput'), document.getElementById('liveDescInput').value);
+}
+
+function onModalDescInput() {
+  showAcDropdown(document.getElementById('descInput'), document.getElementById('descInput').value);
 }
 
 function showDescModal(title, sub, prefill, onConfirm) {
@@ -993,6 +1221,7 @@ async function pushManual() {
   btn.disabled=false; btn.textContent='Push to Clockify →';
   if (ok) {
     showToast(`${fmtDec(dec)} pushed ✓`,'success');
+    addTodayDescription(memo);
     document.getElementById('manualDuration').value='';
     document.getElementById('manualMemo').value='';
     document.getElementById('durPreview').textContent='';
@@ -1027,6 +1256,9 @@ function clockIn() {
   if (idleProjectId) {
     startIdleEntry();
   }
+
+  // Pre-load today's descriptions for autocomplete
+  fetchTodayDescriptions();
 
   // Start idle checker
   idleTimerStart = new Date();
@@ -1095,6 +1327,7 @@ function restoreClockIn() {
   idleTimerStart = new Date();
   idleNotifSent  = false;
   startIdleChecker();
+  fetchTodayDescriptions();
 }
 
 function updateDayTimer() {
@@ -1293,6 +1526,7 @@ function triggerStop(forClockOut=false) {
 
 function cancelStop() {
   document.getElementById('descModal').classList.remove('show');
+  hideAcDropdown();
   // 'before' mode: if cancelling a pending start, just clear it
   if (pendingStart) { pendingStart = null; return; }
   pendingStop = null; pendingNext = null; pendingClockOut = false;
@@ -1344,6 +1578,8 @@ async function confirmStop() {
     taskId:      (tid && tid !== '') ? tid : undefined
   });
   if (!pendingClockOut) showToast(ok ? `${fmtDec(dec)} pushed ✓` : 'Clockify push failed', ok ? 'success' : 'error');
+  // Update local description cache so it's immediately available for next entry
+  if (ok && memo) addTodayDescription(memo);
   clearTimer();
 
   if (pendingClockOut) { pendingClockOut = false; clockOut(); return; }
@@ -1494,6 +1730,12 @@ function showToast(msg,type='info') {
   clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),4000);
 }
 document.getElementById('descInput').addEventListener('keydown',e=>{
+  // If AC dropdown is open, let acKeydown handle arrows/enter/escape
+  const dropdown = document.getElementById('descAcDropdown');
+  if (dropdown.style.display !== 'none') {
+    acKeydown(e, document.getElementById('descInput'));
+    return;
+  }
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();confirmStop();}
 });
 </script>
