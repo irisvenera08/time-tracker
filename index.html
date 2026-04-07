@@ -282,7 +282,7 @@
       </div>
     </div>
     <div class="ci-right">
-      <span class="idle-warning" id="idleWarning">⚠ Idle 30+ min</span>
+      <span class="idle-warning" id="idleWarning">⚠ Idle <span id="idleWarningMins">30</span>+ min</span>
       <div class="ci-day-timer" id="ciDayTimer"></div>
       <button class="btn-clockin" id="btnClockIn" onclick="clockIn()">Clock In</button>
     </div>
@@ -424,10 +424,7 @@
           <input type="text" id="idleMinutesInput" value="30" placeholder="30">
           <p class="s-note">Browser notification if no task is running this long.</p>
         </div>
-        <div id="notifPermRow">
-          <button class="btn-reload" onclick="requestNotifPermission()">Enable Notifications</button>
-          <p class="s-note" id="notifStatus">Permission: unknown</p>
-        </div>
+
         <div>
           <label>Task Description — When to prompt?</label>
           <div class="toggle-group" style="margin-top:4px;">
@@ -569,13 +566,13 @@ window.onload = async () => {
   document.getElementById('userNameInput').value = userName;
   document.getElementById('manualDate').value   = todayStr();
   document.getElementById('idleMinutesInput').value = idleMinutes;
+  document.getElementById('idleWarningMins').textContent = idleMinutes;
 
   const now = new Date();
   const mon = new Date(now); mon.setDate(now.getDate()-((now.getDay()+6)%7));
   document.getElementById('logFrom').value = mon.toISOString().split('T')[0];
   document.getElementById('logTo').value   = todayStr();
 
-  updateNotifStatus();
   applyDescTimingUI();
   applyDurModeUI();
 
@@ -586,14 +583,6 @@ window.onload = async () => {
   restoreClockIn();
 };
 
-// ── Notification permission ────────────────────────────────────
-function updateNotifStatus() {
-  if (!('Notification' in window)) {
-    document.getElementById('notifStatus').textContent = 'Not supported in this browser';
-    return;
-  }
-  document.getElementById('notifStatus').textContent = `Permission: ${Notification.permission}`;
-}
 
 // ── Description timing preference ─────────────────────────────
 function setDescTiming(val) {
@@ -631,22 +620,16 @@ function setLiveDescVisible(visible, placeholder) {
   if (placeholder) el.placeholder = placeholder;
 }
 
-async function requestNotifPermission() {
-  if (!('Notification' in window)) return showToast('Notifications not supported', 'error');
-  const result = await Notification.requestPermission();
-  updateNotifStatus();
-  showToast(result === 'granted' ? 'Notifications enabled ✓' : 'Notifications blocked', result === 'granted' ? 'success' : 'error');
-}
 
-// ── Idle alert: flashing tab + browser notif + JS alert ───────
+// ── Idle alert: tab flash + beep + on-screen banner ───────────
 let tabFlashInterval = null;
-let originalTitle    = 'Clockify Time Tracker';
+const originalTitle  = 'Clockify Time Tracker';
 
 function startTabFlash() {
   if (tabFlashInterval) return;
   let toggle = false;
   tabFlashInterval = setInterval(() => {
-    document.title = toggle ? '⚠ IDLE! — Clockify Tracker' : originalTitle;
+    document.title = toggle ? '⚠ IDLE — Clockify' : originalTitle;
     toggle = !toggle;
   }, 1000);
 }
@@ -657,25 +640,53 @@ function stopTabFlash() {
   document.title = originalTitle;
 }
 
+function beep() {
+  try {
+    const ctx  = new AudioContext();
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.4);
+  } catch(e) {}
+}
+
+function tripleBeep() {
+  beep();
+  setTimeout(beep, 380);
+  setTimeout(beep, 760);
+}
+
+function showIdleBanner() {
+  let b = document.getElementById('idleBanner');
+  if (b) { b.style.display = 'flex'; return; }
+  b = document.createElement('div');
+  b.id = 'idleBanner';
+  b.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:rgba(245,158,11,0.08);border:1px solid var(--idle-color);border-radius:10px;padding:12px 20px;margin-bottom:4px;animation:fadeUp 0.3s ease both;';
+  b.innerHTML = '<div style="display:flex;align-items:center;gap:10px;"><span style="font-size:16px;line-height:1;">&#9888;</span><div><div style="font-size:13px;font-weight:700;color:var(--idle-color);">You\'ve been idle for ' + idleMinutes + '+ minutes</div><div style="font-size:12px;color:var(--idle-color);opacity:0.7;margin-top:1px;">Start a task or clock out</div></div></div><button onclick="dismissIdleBanner()" style="background:transparent;border:1px solid rgba(245,158,11,0.3);color:var(--idle-color);border-radius:7px;padding:6px 14px;font-family:\'Syne\',sans-serif;font-size:12px;font-weight:700;cursor:pointer;">Dismiss &#x2715;</button>';
+  const ciBar = document.getElementById('ciBar');
+  ciBar.parentNode.insertBefore(b, ciBar.nextSibling);
+}
+
+function hideIdleBanner() {
+  const b = document.getElementById('idleBanner');
+  if (b) b.style.display = 'none';
+}
+
+function dismissIdleBanner() {
+  hideIdleBanner();
+  stopTabFlash();
+}
+
 function sendIdleNotif() {
-  // 1. Flashing tab title — starts immediately
   startTabFlash();
-
-  // 2. Browser notification as fallback (silent, in background)
-  if (Notification.permission === 'granted') {
-    const n = new Notification('⚠ Clockify Time Tracker — You are idle', {
-      body: `No task has been running for ${idleMinutes}+ minutes. Are you still working?`,
-    });
-    setTimeout(() => n.close(), 8000);
-  }
-
-  // 3. JS Alert — fires after short delay so tab flash is visible first
-  //    Use setTimeout so it doesn't block the idle checker loop
-  setTimeout(() => {
-    alert(`⚠ Clockify Time Tracker\n\nYou have been idle for ${idleMinutes}+ minutes.\n\nPlease start a task or clock out.`);
-    // Once dismissed, stop the tab flash
-    stopTabFlash();
-  }, 500);
+  tripleBeep();
+  showIdleBanner();
 }
 
 // ── Settings ───────────────────────────────────────────────────
@@ -686,6 +697,7 @@ async function saveSettings() {
   localStorage.setItem('cfy_api_key',   apiKey);
   localStorage.setItem('cfy_user_name', userName);
   localStorage.setItem('cfy_idle_mins', idleMinutes);
+  document.getElementById('idleWarningMins').textContent = idleMinutes;
   await connectClockify();
 }
 
@@ -1021,7 +1033,6 @@ function clockIn() {
   idleNotifSent  = false;
   startIdleChecker();
 
-  requestNotifPermission();
   showToast('Clocked in ✓ Have a great day!','success');
 }
 
@@ -1163,6 +1174,7 @@ function onTaskClick(pid, projectName, tid, taskName, btn) {
   idleTimerStart = null; idleNotifSent = false;
   document.getElementById('idleWarning').classList.remove('show');
   stopTabFlash();
+  hideIdleBanner();
 
   // If timing = 'before', show description modal BEFORE starting
   if (descTiming === 'before') {
@@ -1297,6 +1309,7 @@ function discardStop() {
   if (clockedIn && idleProjectId) startIdleEntry();
   idleTimerStart = new Date(); idleNotifSent = false;
   stopTabFlash();
+  hideIdleBanner();
   document.getElementById('idleWarning').classList.remove('show');
   document.getElementById('ciBar').classList.remove('on-task');
   document.getElementById('ciBar').classList.add('clocked-in');
@@ -1342,6 +1355,7 @@ async function confirmStop() {
     if (clockedIn && idleProjectId) startIdleEntry();
     idleTimerStart = new Date(); idleNotifSent = false;
     stopTabFlash();
+    hideIdleBanner();
     document.getElementById('idleWarning').classList.remove('show');
     document.getElementById('ciBar').classList.remove('on-task');
     document.getElementById('ciBar').classList.add('clocked-in');
