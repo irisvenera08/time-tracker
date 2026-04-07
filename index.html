@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Time Tracker</title>
+<title>Clockify Time Tracker</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -94,14 +94,30 @@
   .idle-warning.show { display: block; }
 
   /* ── LIVE TASK BAR ────────────────────────────────────────── */
-  .live-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; min-height: 60px; transition: border-color 0.3s; }
+  .live-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; min-height: 60px; transition: border-color 0.3s; gap: 12px; flex-wrap: wrap; }
   .live-bar.running { border-color: var(--running); box-shadow: 0 0 20px rgba(71,255,156,0.08); }
-  .live-info { display: flex; flex-direction: column; gap: 2px; }
+  .live-info { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
   .live-label { font-size: 0.68rem; color: var(--muted); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
   .live-task { font-size: 0.92rem; font-weight: 700; max-width: 540px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .live-right { display: flex; align-items: center; gap: 14px; }
+  .live-desc-input {
+    background: transparent; border: none; border-bottom: 1px solid var(--border);
+    color: var(--muted); font-family: 'Syne', sans-serif; font-size: 0.78rem;
+    outline: none; width: 100%; max-width: 480px; padding: 2px 0;
+    transition: border-color 0.2s, color 0.2s;
+    display: none;
+  }
+  .live-desc-input.visible { display: block; }
+  .live-desc-input:focus { border-color: var(--accent2); color: var(--text); }
+  .live-desc-input::placeholder { color: var(--muted); font-style: italic; }
+  .live-right { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
   .live-timer { font-family: 'DM Mono', monospace; font-size: 1.9rem; font-weight: 500; color: var(--running); min-width: 120px; text-align: right; letter-spacing: 0.04em; }
   .live-timer.idle { color: var(--muted); font-size: 1.2rem; }
+
+  /* Description timing toggle */
+  .toggle-row { display: flex; align-items: center; gap: 10px; }
+  .toggle-group { display: flex; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .toggle-opt { padding: 8px 16px; font-family: 'Syne', sans-serif; font-size: 0.78rem; font-weight: 600; border: none; background: transparent; color: var(--muted); cursor: pointer; transition: all 0.15s; }
+  .toggle-opt.active { background: var(--accent); color: #0e0f11; }
   .btn-stop { background: var(--danger); color: white; border: none; border-radius: 8px; padding: 10px 20px; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: opacity 0.2s; white-space: nowrap; }
   .btn-stop:hover { opacity: 0.85; }
   .btn-stop:disabled { opacity: 0.3; cursor: not-allowed; }
@@ -155,6 +171,11 @@
   @media(max-width:520px){ .row-2col { grid-template-columns: 1fr; } }
   .dur-hint { font-size: 0.72rem; color: var(--muted); margin-top: 3px; }
   .dur-preview { font-family: 'DM Mono', monospace; font-size: 1rem; color: var(--accent); min-height: 22px; margin-top: 2px; }
+  .dur-input-row { display: flex; gap: 8px; align-items: stretch; }
+  .dur-input-row input { flex: 1; min-width: 0; }
+  .dur-mode-toggle { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+  .dur-mode-btn { padding: 0 14px; font-family: 'Syne', sans-serif; font-size: 0.78rem; font-weight: 700; border: none; background: transparent; color: var(--muted); cursor: pointer; transition: all 0.15s; letter-spacing: 0.04em; }
+  .dur-mode-btn.active { background: var(--accent2); color: #0e0f11; }
   .btn-push { background: var(--accent); color: #0e0f11; border: none; border-radius: 10px; padding: 13px 28px; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: opacity 0.2s; align-self: flex-start; }
   .btn-push:hover { opacity: 0.85; }
   .btn-push:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -239,7 +260,7 @@
   <header>
     <div class="logo">
       <div class="logo-dot" id="headerDot"></div>
-      <h1><span>Time</span> Tracker</h1>
+      <h1><span>Clockify</span> Time Tracker</h1>
     </div>
     <div class="tabs">
       <button class="tab active" onclick="switchTab('track',this)">Track</button>
@@ -272,6 +293,9 @@
     <div class="live-info">
       <div class="live-label">Current Task</div>
       <div class="live-task" id="liveTaskName">— idle —</div>
+      <input class="live-desc-input" id="liveDescInput" type="text"
+        placeholder="What are you working on..." autocomplete="off"
+        oninput="onLiveDescInput()">
     </div>
     <div class="live-right">
       <div class="live-timer idle" id="liveTimer">00:00:00</div>
@@ -301,8 +325,14 @@
         </div>
         <div class="form-row">
           <label>Duration</label>
-          <input type="text" id="manualDuration" placeholder="1.25 · 1:30 · 90" oninput="previewDur()" onblur="normalizeDur()">
-          <div class="dur-hint">1.25 = 1h15m &nbsp;·&nbsp; 1.5 = 1h30m &nbsp;·&nbsp; 90 = 1h30m</div>
+          <div class="dur-input-row">
+            <input type="text" id="manualDuration" placeholder="e.g. 90" oninput="previewDur()" onblur="normalizeDur()">
+            <div class="dur-mode-toggle">
+              <button class="dur-mode-btn active" id="durModeMin" onclick="setDurMode('mins')">min</button>
+              <button class="dur-mode-btn" id="durModeHrs" onclick="setDurMode('hrs')">hrs</button>
+            </div>
+          </div>
+          <div class="dur-hint" id="durHint">Enter minutes · rounded to nearest 5 min</div>
           <div class="dur-preview" id="durPreview"></div>
         </div>
       </div>
@@ -398,6 +428,14 @@
           <button class="btn-reload" onclick="requestNotifPermission()">Enable Notifications</button>
           <p class="s-note" id="notifStatus">Permission: unknown</p>
         </div>
+        <div>
+          <label>Task Description — When to prompt?</label>
+          <div class="toggle-group" style="margin-top:4px;">
+            <button class="toggle-opt" id="descTimingBefore" onclick="setDescTiming('before')">Before — on start</button>
+            <button class="toggle-opt" id="descTimingAfter"  onclick="setDescTiming('after')">After — on stop</button>
+          </div>
+          <p class="s-note" id="descTimingNote">After: type description when you stop the timer.</p>
+        </div>
       </div>
 
       <div class="settings-card" style="grid-column: span 2;">
@@ -412,7 +450,7 @@
 <!-- Stop Modal -->
 <div class="modal-overlay" id="descModal">
   <div class="modal">
-    <h3>What did you work on?</h3>
+    <h3 id="modalTitle">What did you work on?</h3>
     <div class="modal-sub" id="modalSub"></div>
     <textarea id="descInput" placeholder="Brief description... (Enter to save)"></textarea>
     <div class="modal-actions">
@@ -427,8 +465,8 @@
 
 <script>
 // ── State ──────────────────────────────────────────────────────
-let apiKey      = localStorage.getItem('rsm_api_key') || '';
-let userName    = localStorage.getItem('rsm_user_name') || '';
+let apiKey      = localStorage.getItem('cfy_api_key') || '';
+let userName    = localStorage.getItem('cfy_user_name') || '';
 let workspaceId = null;
 let userId      = null;
 let projects    = [];
@@ -447,24 +485,59 @@ let activeTimer   = null;
 let timerInterval = null;
 let pendingStop   = null;
 let pendingNext   = null;
+let pendingStart  = null; // for 'before' timing mode
 let logEntries    = [];
 
 // Idle project settings
-let idleProjectId   = localStorage.getItem('rsm_idle_pid') || '';
-let idleProjectName = localStorage.getItem('rsm_idle_pname') || '';
-let idleTaskId      = localStorage.getItem('rsm_idle_tid') || '';
-let idleTaskName    = localStorage.getItem('rsm_idle_tname') || '';
-let idleMinutes     = parseInt(localStorage.getItem('rsm_idle_mins') || '30');
+let idleProjectId   = localStorage.getItem('cfy_idle_pid') || '';
+let idleProjectName = localStorage.getItem('cfy_idle_pname') || '';
+let idleTaskId      = localStorage.getItem('cfy_idle_tid') || '';
+let idleTaskName    = localStorage.getItem('cfy_idle_tname') || '';
+let idleMinutes     = parseInt(localStorage.getItem('cfy_idle_mins') || '30');
+
+// Description timing preference: 'before' | 'after'
+let descTiming = localStorage.getItem('cfy_desc_timing') || 'after';
 
 // ── Time helpers ───────────────────────────────────────────────
+// Duration input mode: 'mins' | 'hrs'
+let durMode = localStorage.getItem('cfy_dur_mode') || 'mins';
+
+function setDurMode(mode) {
+  durMode = mode;
+  localStorage.setItem('cfy_dur_mode', mode);
+  document.getElementById('durModeMin').classList.toggle('active', mode === 'mins');
+  document.getElementById('durModeHrs').classList.toggle('active', mode === 'hrs');
+  document.getElementById('durHint').textContent = mode === 'mins'
+    ? 'Enter minutes · rounded to nearest 5 min'
+    : 'Enter decimal hours · e.g. 1.5 = 1h30m · rounded to nearest 5 min';
+  document.getElementById('manualDuration').placeholder = mode === 'mins' ? 'e.g. 90' : 'e.g. 1.5';
+  // Clear and re-preview with new mode
+  document.getElementById('manualDuration').value = '';
+  document.getElementById('durPreview').textContent = '';
+}
+
+function applyDurModeUI() {
+  document.getElementById('durModeMin').classList.toggle('active', durMode === 'mins');
+  document.getElementById('durModeHrs').classList.toggle('active', durMode === 'hrs');
+  document.getElementById('durHint').textContent = durMode === 'mins'
+    ? 'Enter minutes · rounded to nearest 5 min'
+    : 'Enter decimal hours · e.g. 1.5 = 1h30m · rounded to nearest 5 min';
+  document.getElementById('manualDuration').placeholder = durMode === 'mins' ? 'e.g. 90' : 'e.g. 1.5';
+}
+
 function parseDecimal(raw) {
   raw = (raw || '').trim(); if (!raw) return null;
   let mins = null;
-  if (/^\d+:\d{2}$/.test(raw)) { const [h,m]=raw.split(':').map(Number); mins=h*60+m; }
-  else if (/^\d+$/.test(raw) && +raw>10) { mins=+raw; }
-  else if (/^\d+(\.\d+)?$/.test(raw)) { const d=parseFloat(raw); mins=Math.floor(d)*60+Math.round((d%1)*60); }
-  if (!mins||mins<=0) return null;
-  return Math.round(mins/15)*15/60;
+  if (durMode === 'mins') {
+    // Accepts plain number as minutes (integers or decimals like 22.5)
+    if (/^\d+(\.\d+)?$/.test(raw)) { mins = parseFloat(raw); }
+  } else {
+    // Accepts decimal hours: 1.5 = 1h30m
+    if (/^\d+(\.\d+)?$/.test(raw)) { const d = parseFloat(raw); mins = Math.floor(d)*60 + Math.round((d%1)*60); }
+  }
+  if (!mins || mins <= 0) return null;
+  // Round to nearest 5 minutes, return as decimal hours
+  return Math.round(mins / 5) * 5 / 60;
 }
 function decToHuman(d) {
   if (!d) return ''; const h=Math.floor(d),m=Math.round((d-h)*60);
@@ -503,6 +576,8 @@ window.onload = async () => {
   document.getElementById('logTo').value   = todayStr();
 
   updateNotifStatus();
+  applyDescTimingUI();
+  applyDurModeUI();
 
   if (apiKey) await connectClockify();
   else        showNoApi('projectGroups');
@@ -520,6 +595,42 @@ function updateNotifStatus() {
   document.getElementById('notifStatus').textContent = `Permission: ${Notification.permission}`;
 }
 
+// ── Description timing preference ─────────────────────────────
+function setDescTiming(val) {
+  descTiming = val;
+  localStorage.setItem('cfy_desc_timing', val);
+  applyDescTimingUI();
+  showToast(val === 'before' ? 'Description prompt: on start' : 'Description prompt: on stop', 'info');
+}
+
+function applyDescTimingUI() {
+  document.getElementById('descTimingBefore').classList.toggle('active', descTiming === 'before');
+  document.getElementById('descTimingAfter').classList.toggle('active',  descTiming === 'after');
+  document.getElementById('descTimingNote').textContent = descTiming === 'before'
+    ? 'Before: describe the task when you start the timer.'
+    : 'After: describe what you did when you stop the timer.';
+}
+
+function onLiveDescInput() {
+  // Nothing special needed — value read directly on stop/start
+}
+
+function showDescModal(title, sub, prefill, onConfirm) {
+  document.getElementById('modalSub').textContent = sub;
+  document.getElementById('descInput').value = prefill || '';
+  document.getElementById('descModal').classList.add('show');
+  // Store callback — we'll call it from confirmStop
+  document._descOnConfirm = onConfirm;
+  setTimeout(() => document.getElementById('descInput').focus(), 150);
+}
+
+function setLiveDescVisible(visible, placeholder) {
+  const el = document.getElementById('liveDescInput');
+  el.classList.toggle('visible', visible);
+  if (!visible) { el.value = ''; }
+  if (placeholder) el.placeholder = placeholder;
+}
+
 async function requestNotifPermission() {
   if (!('Notification' in window)) return showToast('Notifications not supported', 'error');
   const result = await Notification.requestPermission();
@@ -529,13 +640,13 @@ async function requestNotifPermission() {
 
 // ── Idle alert: flashing tab + browser notif + JS alert ───────
 let tabFlashInterval = null;
-let originalTitle    = 'Time Tracker';
+let originalTitle    = 'Clockify Time Tracker';
 
 function startTabFlash() {
   if (tabFlashInterval) return;
   let toggle = false;
   tabFlashInterval = setInterval(() => {
-    document.title = toggle ? '⚠ IDLE! — Tracker' : originalTitle;
+    document.title = toggle ? '⚠ IDLE! — Clockify Tracker' : originalTitle;
     toggle = !toggle;
   }, 1000);
 }
@@ -552,7 +663,7 @@ function sendIdleNotif() {
 
   // 2. Browser notification as fallback (silent, in background)
   if (Notification.permission === 'granted') {
-    const n = new Notification('⚠ Time Tracker — You are idle', {
+    const n = new Notification('⚠ Clockify Time Tracker — You are idle', {
       body: `No task has been running for ${idleMinutes}+ minutes. Are you still working?`,
     });
     setTimeout(() => n.close(), 8000);
@@ -561,7 +672,7 @@ function sendIdleNotif() {
   // 3. JS Alert — fires after short delay so tab flash is visible first
   //    Use setTimeout so it doesn't block the idle checker loop
   setTimeout(() => {
-    alert(`⚠ Time Tracker\n\nYou have been idle for ${idleMinutes}+ minutes.\n\nPlease start a task or clock out.`);
+    alert(`⚠ Clockify Time Tracker\n\nYou have been idle for ${idleMinutes}+ minutes.\n\nPlease start a task or clock out.`);
     // Once dismissed, stop the tab flash
     stopTabFlash();
   }, 500);
@@ -572,9 +683,9 @@ async function saveSettings() {
   apiKey   = document.getElementById('apiKeyInput').value.trim();
   userName = document.getElementById('userNameInput').value.trim();
   idleMinutes = parseInt(document.getElementById('idleMinutesInput').value) || 30;
-  localStorage.setItem('rsm_api_key',   apiKey);
-  localStorage.setItem('rsm_user_name', userName);
-  localStorage.setItem('rsm_idle_mins', idleMinutes);
+  localStorage.setItem('cfy_api_key',   apiKey);
+  localStorage.setItem('cfy_user_name', userName);
+  localStorage.setItem('cfy_idle_mins', idleMinutes);
   await connectClockify();
 }
 
@@ -582,8 +693,8 @@ function saveIdleProject() {
   const sel = document.getElementById('idleProjectSelect');
   idleProjectId   = sel.value;
   idleProjectName = sel.options[sel.selectedIndex]?.dataset.name || '';
-  localStorage.setItem('rsm_idle_pid',   idleProjectId);
-  localStorage.setItem('rsm_idle_pname', idleProjectName);
+  localStorage.setItem('cfy_idle_pid',   idleProjectId);
+  localStorage.setItem('cfy_idle_pname', idleProjectName);
   fillIdleTaskSelect();
 }
 
@@ -591,8 +702,8 @@ function saveIdleTask() {
   const sel = document.getElementById('idleTaskSelect');
   idleTaskId   = sel.value;
   idleTaskName = sel.options[sel.selectedIndex]?.text || '';
-  localStorage.setItem('rsm_idle_tid',   idleTaskId);
-  localStorage.setItem('rsm_idle_tname', idleTaskName);
+  localStorage.setItem('cfy_idle_tid',   idleTaskId);
+  localStorage.setItem('cfy_idle_tname', idleTaskName);
 }
 
 async function reloadProjects() {
@@ -638,7 +749,7 @@ async function connectClockify() {
   });
 
   // Restore saved workspace or default to first
-  const savedWsId = localStorage.getItem('rsm_workspace_id');
+  const savedWsId = localStorage.getItem('cfy_workspace_id');
   const ws = allWorkspaces.find(w => w.id === savedWsId) || allWorkspaces[0];
   sel.value = ws.id;
   workspaceId = ws.id;
@@ -658,7 +769,7 @@ async function connectClockify() {
 async function onWorkspaceChange() {
   const sel = document.getElementById('workspaceSelect');
   workspaceId = sel.value;
-  localStorage.setItem('rsm_workspace_id', workspaceId);
+  localStorage.setItem('cfy_workspace_id', workspaceId);
   const ws = allWorkspaces.find(w => w.id === workspaceId);
   if (ws) setConn(`Connected · ${ws.name}`, 'ok');
   showTrackLoading('Loading projects & tasks...');
@@ -823,15 +934,31 @@ function fillManualTasks() {
 }
 
 function previewDur() {
-  const d=parseDecimal(document.getElementById('manualDuration').value);
-  const el=document.getElementById('durPreview');
-  if (d) { el.textContent=`→ ${fmtDec(d)}  (${decToHuman(d)})`; el.style.color='var(--accent)'; }
-  else if (document.getElementById('manualDuration').value.trim()) { el.textContent='— unrecognized'; el.style.color='var(--muted)'; }
-  else el.textContent='';
+  const d  = parseDecimal(document.getElementById('manualDuration').value);
+  const el = document.getElementById('durPreview');
+  if (d) {
+    const roundedMins = Math.round(d * 60);
+    el.textContent = `→ ${roundedMins} min  ·  ${fmtDec(d)}  (${decToHuman(d)})`;
+    el.style.color = 'var(--accent)';
+  } else if (document.getElementById('manualDuration').value.trim()) {
+    el.textContent = '— unrecognized';
+    el.style.color = 'var(--muted)';
+  } else {
+    el.textContent = '';
+  }
 }
 function normalizeDur() {
-  const d=parseDecimal(document.getElementById('manualDuration').value);
-  if (d) { document.getElementById('manualDuration').value=d.toFixed(2); previewDur(); }
+  const raw = document.getElementById('manualDuration').value.trim();
+  const d   = parseDecimal(raw);
+  if (d) {
+    // Show rounded minutes back in the field for 'mins' mode, decimal for 'hrs' mode
+    if (durMode === 'mins') {
+      document.getElementById('manualDuration').value = String(Math.round(d * 60));
+    } else {
+      document.getElementById('manualDuration').value = d.toFixed(2);
+    }
+    previewDur();
+  }
 }
 
 async function pushManual() {
@@ -866,7 +993,7 @@ function clockIn() {
 
   clockedIn   = true;
   clockInTime = new Date();
-  localStorage.setItem('rsm_clockin', clockInTime.toISOString());
+  localStorage.setItem('cfy_clockin', clockInTime.toISOString());
 
   // Update UI
   document.getElementById('ciBar').classList.add('clocked-in');
@@ -911,7 +1038,7 @@ function clockOut() {
   if (idleProjectId) stopIdleEntry();
 
   clockedIn = false;
-  localStorage.removeItem('rsm_clockin');
+  localStorage.removeItem('cfy_clockin');
 
   clearInterval(dayTimerInterval);
   clearInterval(idleCheckInterval);
@@ -935,10 +1062,10 @@ function clockOut() {
 }
 
 function restoreClockIn() {
-  const saved = localStorage.getItem('rsm_clockin');
+  const saved = localStorage.getItem('cfy_clockin');
   if (!saved) return;
   clockInTime = new Date(saved);
-  if (isNaN(clockInTime)) { localStorage.removeItem('rsm_clockin'); return; }
+  if (isNaN(clockInTime)) { localStorage.removeItem('cfy_clockin'); return; }
   clockedIn = true;
 
   document.getElementById('ciBar').classList.add('clocked-in');
@@ -1037,9 +1164,26 @@ function onTaskClick(pid, projectName, tid, taskName, btn) {
   document.getElementById('idleWarning').classList.remove('show');
   stopTabFlash();
 
+  // If timing = 'before', show description modal BEFORE starting
+  if (descTiming === 'before') {
+    document.getElementById('modalTitle').textContent = 'What will you work on?';
+    document.getElementById('modalSub').textContent = `${displayName(projectName)}\n${taskName}`;
+    document.getElementById('descInput').value = '';
+    document.getElementById('descModal').classList.add('show');
+    document.querySelector('.btn-confirm').textContent = 'Start Timer →';
+    setTimeout(() => document.getElementById('descInput').focus(), 150);
+    pendingStop = null;
+    pendingStart = {pid, projectName, tid, taskName, btn};
+    return;
+  }
+
+  startTimer(pid, projectName, tid, taskName, btn, '');
+}
+
+function startTimer(pid, projectName, tid, taskName, btn, initialDesc) {
   const start = new Date();
-  activeTimer = {pid, projectName, tid, taskName, start, btn};
-  localStorage.setItem('rsm_active_timer', JSON.stringify({pid,projectName,tid,taskName,startISO:start.toISOString()}));
+  activeTimer = {pid, projectName, tid, taskName, start, btn, desc: initialDesc};
+  localStorage.setItem('cfy_active_timer', JSON.stringify({pid,projectName,tid,taskName,startISO:start.toISOString()}));
 
   btn.classList.add('active');
   if (btn._color) { btn.style.borderColor=btn._color; btn.style.color=btn._color; btn.style.background=btn._color+'14'; }
@@ -1049,6 +1193,12 @@ function onTaskClick(pid, projectName, tid, taskName, btn) {
   document.getElementById('btnStop').disabled = false;
   document.getElementById('liveTimer').classList.remove('idle');
   document.getElementById('headerDot').style.cssText = 'background:var(--running);box-shadow:0 0 12px var(--running)';
+
+  // Show live description field
+  setLiveDescVisible(true, descTiming === 'before'
+    ? 'Add more detail anytime...'
+    : 'What are you working on...');
+  document.getElementById('liveDescInput').value = initialDesc;
 
   // Update clock-in bar
   document.getElementById('ciBar').classList.remove('clocked-in');
@@ -1063,32 +1213,34 @@ function onTaskClick(pid, projectName, tid, taskName, btn) {
 }
 
 function restoreTimer() {
-  const saved = localStorage.getItem('rsm_active_timer');
+  const saved = localStorage.getItem('cfy_active_timer');
   if (!saved) return;
   try {
     const t = JSON.parse(saved);
     const start = new Date(t.startISO);
-    if (isNaN(start)) { localStorage.removeItem('rsm_active_timer'); return; }
-    activeTimer = {pid:t.pid,projectName:t.projectName,tid:t.tid,taskName:t.taskName,start,btn:null};
+    if (isNaN(start)) { localStorage.removeItem('cfy_active_timer'); return; }
+    activeTimer = {pid:t.pid, projectName:t.projectName, tid:t.tid, taskName:t.taskName, start, btn:null};
     document.getElementById('liveBar').classList.add('running');
     document.getElementById('liveTaskName').textContent = `${displayName(t.projectName)} · ${t.taskName}`;
     document.getElementById('btnStop').disabled = false;
     document.getElementById('liveTimer').classList.remove('idle');
-    document.getElementById('headerDot').style.cssText='background:var(--running);box-shadow:0 0 12px var(--running)';
-    timerInterval = setInterval(()=>{
+    document.getElementById('headerDot').style.cssText = 'background:var(--running);box-shadow:0 0 12px var(--running)';
+    // Show live desc field on restore
+    setLiveDescVisible(true, 'What are you working on...');
+    timerInterval = setInterval(() => {
       tickTimer();
       if (!activeTimer?.btn) {
-        const b=document.querySelector(`.task-btn[data-pid="${t.pid}"][data-tname="${t.taskName}"]`);
+        const b = document.querySelector(`.task-btn[data-pid="${t.pid}"][data-tname="${t.taskName}"]`);
         if (b) {
           b.classList.add('active');
-          if (b._color){b.style.borderColor=b._color;b.style.color=b._color;b.style.background=b._color+'14';}
-          activeTimer.btn=b;
+          if (b._color) { b.style.borderColor=b._color; b.style.color=b._color; b.style.background=b._color+'14'; }
+          activeTimer.btn = b;
         }
       }
-    },1000);
+    }, 1000);
     tickTimer();
-    showToast(`⏱ Timer restored: ${t.taskName}`,'info');
-  } catch { localStorage.removeItem('rsm_active_timer'); }
+    showToast(`⏱ Timer restored: ${t.taskName}`, 'info');
+  } catch { localStorage.removeItem('cfy_active_timer'); }
 }
 
 function tickTimer() {
@@ -1102,32 +1254,46 @@ function stopTimer() { if (activeTimer) triggerStop(false); }
 let pendingClockOut = false;
 function triggerStop(forClockOut=false) {
   pendingClockOut = forClockOut;
-  const realEnd = new Date();
-  const sec     = Math.floor((realEnd - activeTimer.start) / 1000);
-  const dec     = secToDec(sec); // rounded to nearest 5 mins
-  // Recalculate end time from rounded duration so Clockify gets correct duration
+  const realEnd    = new Date();
+  const sec        = Math.floor((realEnd - activeTimer.start) / 1000);
+  const dec        = secToDec(sec);
   const roundedEnd = new Date(activeTimer.start.getTime() + dec * 3600000);
+
+  // Pre-fill description from live field if user typed something
+  const liveDesc = document.getElementById('liveDescInput').value.trim();
+
   pendingStop = {...activeTimer, end: roundedEnd, dec};
   if (forClockOut) { confirmStop(); return; }
+
+  document.getElementById('modalTitle').textContent = 'What did you work on?';
+  document.querySelector('.btn-confirm').textContent = 'Save & Push →';
   document.getElementById('modalSub').textContent =
     `${displayName(activeTimer.projectName)}\n${activeTimer.taskName} — ${fmtHMS(sec)} → ${fmtDec(dec)} (${decToHuman(dec)})`;
-  document.getElementById('descInput').value = '';
+  // Pre-fill modal with whatever is in the live desc field
+  document.getElementById('descInput').value = liveDesc;
   document.getElementById('descModal').classList.add('show');
-  setTimeout(() => document.getElementById('descInput').focus(), 150);
+  setTimeout(() => {
+    const inp = document.getElementById('descInput');
+    inp.focus();
+    inp.selectionStart = inp.selectionEnd = inp.value.length;
+  }, 150);
 }
 
 function cancelStop() {
   document.getElementById('descModal').classList.remove('show');
+  // 'before' mode: if cancelling a pending start, just clear it
+  if (pendingStart) { pendingStart = null; return; }
   pendingStop = null; pendingNext = null; pendingClockOut = false;
 }
 
 // Discard — stops timer locally, nothing sent to Clockify
 function discardStop() {
   document.getElementById('descModal').classList.remove('show');
+  // 'before' mode: if discarding a pending start, just bail
+  if (pendingStart) { pendingStart = null; return; }
   const hadNext = pendingNext;
   pendingStop = null; pendingNext = null; pendingClockOut = false;
   clearTimer();
-  // Resume idle entry since no task is running
   if (clockedIn && idleProjectId) startIdleEntry();
   idleTimerStart = new Date(); idleNotifSent = false;
   stopTabFlash();
@@ -1139,43 +1305,50 @@ function discardStop() {
   document.getElementById('ciLabel').textContent = 'Clocked in — idle';
   document.getElementById('ciDetail').textContent = `Since ${clockInTime?.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})||'—'}`;
   showToast('Timer discarded — nothing pushed', 'info');
-  // If switching tasks, start the next one
   if (hadNext) onTaskClick(hadNext.pid, hadNext.projectName, hadNext.tid, hadNext.taskName, hadNext.btn);
 }
 
 async function confirmStop() {
   const memo = pendingClockOut ? '' : document.getElementById('descInput').value.trim();
   document.getElementById('descModal').classList.remove('show');
+
+  // ── 'Before' mode: modal fired on START, not stop ──────────
+  if (pendingStart) {
+    const ps = pendingStart;
+    pendingStart = null;
+    startTimer(ps.pid, ps.projectName, ps.tid, ps.taskName, ps.btn, memo);
+    return;
+  }
+
+  // ── Normal 'after' mode: push to Clockify ──────────────────
   if (!pendingStop) return;
   const {pid, tid, start, end, dec} = pendingStop;
-  // Payload uses rounded end time — Clockify computes duration as end - start
   const ok = await cpost(`https://api.clockify.me/api/v1/workspaces/${workspaceId}/time-entries`, {
-    start: start.toISOString(),
-    end:   end.toISOString(),   // ← rounded end, not real end
+    start:       start.toISOString(),
+    end:         end.toISOString(),   // rounded end
     description: memo,
-    projectId: pid || undefined,
-    taskId: (tid && tid !== '') ? tid : undefined
+    projectId:   pid || undefined,
+    taskId:      (tid && tid !== '') ? tid : undefined
   });
   if (!pendingClockOut) showToast(ok ? `${fmtDec(dec)} pushed ✓` : 'Clockify push failed', ok ? 'success' : 'error');
   clearTimer();
 
-  if (pendingClockOut) { pendingClockOut=false; clockOut(); return; }
+  if (pendingClockOut) { pendingClockOut = false; clockOut(); return; }
 
   if (pendingNext) {
-    const n=pendingNext; pendingNext=null;
-    onTaskClick(n.pid,n.projectName,n.tid,n.taskName,n.btn);
+    const n = pendingNext; pendingNext = null;
+    onTaskClick(n.pid, n.projectName, n.tid, n.taskName, n.btn);
   } else {
-    // Back to idle — restart idle entry
     if (clockedIn && idleProjectId) startIdleEntry();
-    idleTimerStart=new Date(); idleNotifSent=false;
+    idleTimerStart = new Date(); idleNotifSent = false;
     stopTabFlash();
     document.getElementById('idleWarning').classList.remove('show');
     document.getElementById('ciBar').classList.remove('on-task');
     document.getElementById('ciBar').classList.add('clocked-in');
     document.getElementById('ciDot').classList.remove('task-dot');
     document.getElementById('ciDot').classList.add('idle-dot');
-    document.getElementById('ciLabel').textContent='Clocked in — idle';
-    document.getElementById('ciDetail').textContent=`Since ${clockInTime?.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})||'—'}`;
+    document.getElementById('ciLabel').textContent = 'Clocked in — idle';
+    document.getElementById('ciDetail').textContent = `Since ${clockInTime?.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})||'—'}`;
   }
 }
 
@@ -1183,16 +1356,20 @@ function clearTimer() {
   clearInterval(timerInterval);
   if (activeTimer?.btn) {
     activeTimer.btn.classList.remove('active');
-    activeTimer.btn.style.borderColor=''; activeTimer.btn.style.color=''; activeTimer.btn.style.background='';
+    activeTimer.btn.style.borderColor = '';
+    activeTimer.btn.style.color       = '';
+    activeTimer.btn.style.background  = '';
   }
-  activeTimer=null;
-  localStorage.removeItem('rsm_active_timer');
+  activeTimer = null;
+  localStorage.removeItem('cfy_active_timer');
   document.getElementById('liveBar').classList.remove('running');
-  document.getElementById('liveTaskName').textContent='— idle —';
-  document.getElementById('liveTimer').textContent='00:00:00';
+  document.getElementById('liveTaskName').textContent = '— idle —';
+  document.getElementById('liveTimer').textContent    = '00:00:00';
   document.getElementById('liveTimer').classList.add('idle');
-  document.getElementById('btnStop').disabled=true;
-  document.getElementById('headerDot').style.cssText='background:var(--accent);box-shadow:0 0 12px var(--accent)';
+  document.getElementById('btnStop').disabled = true;
+  document.getElementById('headerDot').style.cssText = 'background:var(--accent);box-shadow:0 0 12px var(--accent)';
+  // Hide and clear live description field
+  setLiveDescVisible(false);
 }
 
 // ── Log from Clockify ──────────────────────────────────────────
@@ -1241,7 +1418,7 @@ function exportCSV() {
     rows.push([start.toLocaleDateString('en-GB'),dec.toFixed(2),e.project?.name||'',e.task?.name||'',e.description||'','']);
   });
   const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-  Object.assign(document.createElement('a'),{href:URL.createObjectURL(new Blob([csv],{type:'text/csv'})),download:`rsm_timelog_${todayStr()}.csv`}).click();
+  Object.assign(document.createElement('a'),{href:URL.createObjectURL(new Blob([csv],{type:'text/csv'})),download:`cfy_timelog_${todayStr()}.csv`}).click();
   showToast('CSV downloaded!','success');
 }
 
