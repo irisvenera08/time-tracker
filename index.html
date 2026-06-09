@@ -472,6 +472,16 @@
         </div>
 
         <div>
+          <label>Project Sorting</label>
+          <select id="projectSortSelect" onchange="setProjectSort(this.value)">
+            <option value="name">Alphabetical — Project Name</option>
+            <option value="id">Alphabetical — Project ID (PRJ code)</option>
+            <option value="clockify">Clockify order (as returned by API)</option>
+          </select>
+          <p class="s-note">Order of projects in the Track tab and all dropdowns.</p>
+        </div>
+
+        <div>
           <label>Task Description — When to prompt?</label>
           <div class="toggle-group" style="margin-top:4px;">
             <button class="toggle-opt" id="descTimingBefore" onclick="setDescTiming('before')">Before — on start</button>
@@ -551,6 +561,9 @@ let idleMinutes     = parseInt(localStorage.getItem('cfy_idle_mins') || '30');
 
 // Description timing preference: 'before' | 'after'
 let descTiming = localStorage.getItem('cfy_desc_timing') || 'after';
+
+// Project sorting: 'name' (alphabetical by name) | 'id' (by PRJ code) | 'clockify' (API order)
+let projectSort = localStorage.getItem('cfy_sort') || 'name';
 
 // ── Time helpers ───────────────────────────────────────────────
 // Duration input mode: 'mins' | 'hrs'
@@ -632,6 +645,7 @@ window.onload = async () => {
 
   applyDescTimingUI();
   applyDurModeUI();
+  document.getElementById('projectSortSelect').value = projectSort;
 
   if (apiKey) await connectClockify();
   else        showNoApi('projectGroups');
@@ -829,7 +843,10 @@ function onLiveDescInput() {
 }
 
 function onModalDescInput() {
-  showAcDropdown(document.getElementById('descInput'), document.getElementById('descInput').value);
+  const inp = document.getElementById('descInput');
+  inp.style.borderColor = '';
+  inp.placeholder = 'Brief description... (Enter to save)';
+  showAcDropdown(inp, inp.value);
 }
 
 function showDescModal(title, sub, prefill, onConfirm) {
@@ -1031,22 +1048,48 @@ async function loadProjects() {
 
   for (let i = 0; i < ps.length; i += BATCH) {
     const batch = ps.slice(i, i + BATCH);
-    const results = await Promise.all(batch.map(async p => {
+    const results = await Promise.all(batch.map(async (p, bi) => {
       const tasks = await fetchTasksWithRetry(p.id);
-      return { id: p.id, name: p.name, color: p.color || '#6b7280', tasks };
+      return { id: p.id, name: p.name, color: p.color || '#6b7280', tasks, order: i + bi };
     }));
     withTasks.push(...results);
 
     // Update track tab progressively so user sees projects appearing
-    const partial = [...withTasks].sort((a,b) => a.name.localeCompare(b.name));
-    projects = partial;
+    projects = sortProjects(withTasks);
     buildTrackTab();
 
     // Delay between batches (skip delay after last batch)
     if (i + BATCH < ps.length) await sleep(DELAY);
   }
 
-  projects = withTasks.sort((a,b) => a.name.localeCompare(b.name));
+  projects = sortProjects(withTasks);
+}
+
+// ── Project sorting ────────────────────────────────────────────
+function sortProjects(arr) {
+  const a = [...arr];
+  if (projectSort === 'clockify') {
+    a.sort((x, y) => (x.order ?? 0) - (y.order ?? 0));
+  } else if (projectSort === 'id') {
+    a.sort((x, y) => {
+      const px = extractPRJ(x.name), py = extractPRJ(y.name);
+      if (px && py) return px.localeCompare(py, undefined, { numeric: true });
+      if (px) return -1;
+      if (py) return 1;
+      return displayName(x.name).localeCompare(displayName(y.name));
+    });
+  } else {
+    a.sort((x, y) => displayName(x.name).localeCompare(displayName(y.name)));
+  }
+  return a;
+}
+
+function setProjectSort(val) {
+  projectSort = val;
+  localStorage.setItem('cfy_sort', val);
+  projects = sortProjects(projects);
+  buildTrackTab(); fillManualProjectSelect(); fillIdleProjectSelect();
+  showToast('Project sorting updated ✓', 'info');
 }
 
 async function fetchTasksWithRetry(projectId, retries = 3) {
@@ -1512,6 +1555,9 @@ function triggerStop(forClockOut=false) {
 
   document.getElementById('modalTitle').textContent = 'What did you work on?';
   document.querySelector('.btn-confirm').textContent = 'Save & Push →';
+  const descEl = document.getElementById('descInput');
+  descEl.style.borderColor = '';
+  descEl.placeholder = 'Brief description... (Enter to save)';
   document.getElementById('modalSub').textContent =
     `${displayName(activeTimer.projectName)}\n${activeTimer.taskName} — ${fmtHMS(sec)} → ${fmtDec(dec)} (${decToHuman(dec)})`;
   // Pre-fill modal with whatever is in the live desc field
@@ -1557,10 +1603,11 @@ function discardStop() {
 
 async function confirmStop() {
   const memo = pendingClockOut ? '' : document.getElementById('descInput').value.trim();
-  document.getElementById('descModal').classList.remove('show');
 
   // ── 'Before' mode: modal fired on START, not stop ──────────
   if (pendingStart) {
+    document.getElementById('descModal').classList.remove('show');
+    hideAcDropdown();
     const ps = pendingStart;
     pendingStart = null;
     startTimer(ps.pid, ps.projectName, ps.tid, ps.taskName, ps.btn, memo);
@@ -1568,8 +1615,25 @@ async function confirmStop() {
   }
 
   // ── Normal 'after' mode: push to Clockify ──────────────────
-  if (!pendingStop) return;
-  const {pid, tid, start, end, dec} = pendingStop;
+  if (!pendingStop) { document.getElementById('descModal').classList.remove('show'); return; }
+
+  // Require a description before pushing — modal stays open, nothing is lost.
+  // (Clockify workspaces with "required description" reject empty memos anyway.)
+  if (!pendingClockOut && !memo) {
+    const inp = document.getElementById('descInput');
+    inp.style.borderColor = 'var(--danger)';
+    inp.placeholder = '⚠ Description required — type a short note to push';
+    inp.focus();
+    showToast('Add a description first — your time is still held', 'warn');
+    return;
+  }
+
+  const {pid, tid, start, end, dec, projectName, taskName} = pendingStop;
+  const confirmBtn = document.querySelector('.btn-confirm');
+  confirmBtn.disabled = true;
+  const prevBtnText = confirmBtn.textContent;
+  confirmBtn.textContent = 'Pushing...';
+
   const ok = await cpost(`https://api.clockify.me/api/v1/workspaces/${workspaceId}/time-entries`, {
     start:       start.toISOString(),
     end:         end.toISOString(),   // rounded end
@@ -1577,9 +1641,36 @@ async function confirmStop() {
     projectId:   pid || undefined,
     taskId:      (tid && tid !== '') ? tid : undefined
   });
-  if (!pendingClockOut) showToast(ok ? `${fmtDec(dec)} pushed ✓` : 'Clockify push failed', ok ? 'success' : 'error');
+
+  confirmBtn.disabled = false;
+  confirmBtn.textContent = prevBtnText;
+
+  // ── Push FAILED: keep everything. Timer keeps running, modal stays
+  //    (or opens, for the silent clock-out path) so the entry is never lost.
+  if (!ok) {
+    const wasClockOut = pendingClockOut;
+    pendingClockOut = false; // abort auto clock-out; user retries from the modal
+    document.getElementById('modalTitle').textContent = '⚠ Push failed — entry not lost';
+    confirmBtn.textContent = 'Retry Push →';
+    document.getElementById('modalSub').textContent =
+      `${displayName(projectName)}\n${taskName} — ${fmtDec(dec)} (${decToHuman(dec)})\n` +
+      `Clockify rejected the entry. Check your connection / API key` +
+      (memo ? '' : ' or add a description') + `, then retry.` +
+      (wasClockOut ? '\nClock-out was paused — push first, then clock out again.' : '');
+    document.getElementById('descInput').value = memo;
+    document.getElementById('descModal').classList.add('show');
+    setTimeout(() => document.getElementById('descInput').focus(), 150);
+    showToast('Clockify push failed — your time is safe, retry', 'error');
+    return;
+  }
+
+  // ── Push succeeded ──────────────────────────────────────────
+  document.getElementById('descModal').classList.remove('show');
+  hideAcDropdown();
+  if (!pendingClockOut) showToast(`${fmtDec(dec)} pushed ✓`, 'success');
   // Update local description cache so it's immediately available for next entry
-  if (ok && memo) addTodayDescription(memo);
+  if (memo) addTodayDescription(memo);
+  pendingStop = null;
   clearTimer();
 
   if (pendingClockOut) { pendingClockOut = false; clockOut(); return; }
